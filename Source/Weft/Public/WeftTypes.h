@@ -1,0 +1,60 @@
+#pragma once
+
+#include "CoreMinimal.h"
+
+#include "WeftTypes.generated.h"
+
+/**
+ * Where a page's element with data-anchor="<Key>" goes this frame (docs/engine-communication.md of weft, section 5):
+ * the engine projects, the renderer moves the element, with no script, style or layout work.
+ */
+USTRUCT(BlueprintType)
+struct WEFT_API FWeftAnchor
+{
+	GENERATED_BODY()
+
+	/** The key the element names in data-anchor (decimal). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weft")
+	int64 Key = 0;
+
+	/** Where the anchor is, in the view's logical px (CSS px from its top-left). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weft")
+	FVector2D Position = FVector2D::ZeroVector;
+
+	/** The element's scale about its pivot (data-anchor-pivot); 1 is its laid-out size. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weft")
+	float Scale = 1.f;
+
+	/** Larger is farther: anchored siblings draw far to near. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weft")
+	float Depth = 0.f;
+
+	/** Hidden this frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weft")
+	bool bHidden = false;
+
+	/** Behind the camera, or behind what the scene puts in front of it: hidden unless the page shows it anyway. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weft")
+	bool bBehind = false;
+};
+
+/** A page for a weft View: its scripts in order, its stylesheet and keyframes, and the selector of its root. */
+struct WEFT_API FWeftPage
+{
+	/** Script name (for stack traces) and source. */
+	TArray<TPair<FString, FString>> Scripts;
+	FString Stylesheet;
+	/** The @keyframes rules: weft takes them apart from the stylesheet. */
+	FString Keyframes;
+	/** "#id" or a tag name; empty is "#root", the element the document's body starts with. */
+	FString Root;
+	/** Installs CRPG Framework's window.ue.sendEvent, __ue_dispatch and __vm_update over weft.engine. */
+	bool bCrpgBridge = false;
+
+	/**
+	 * The page in a folder: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root": "...",
+	 * "crpgBridge": false}, paths relative to the folder), or without it page.js, with page.css and keyframes.css when
+	 * they are there. False, with why in OutError, when a file is missing.
+	 */
+	static bool FromDirectory(const FString& Directory, FWeftPage& Out, FString* OutError = nullptr);
+};

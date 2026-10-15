@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "Weft UI",
+	"Description": "Game UI written in HTML, CSS and JavaScript, run by weft and drawn on the engine's own GPU device.",
+	"Category": "User Interface",
+	"CreatedBy": "JiahaoLi01",
+	"CreatedByURL": "https://github.com/JiahaoLi01/weft-unreal",
+	"DocsURL": "https://github.com/JiahaoLi01/weft",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Modules": [
+		{
+			"Name": "Weft",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		}
+	]
+}

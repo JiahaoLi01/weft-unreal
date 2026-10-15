@@ -1,0 +1,6 @@
+Binaries/
+Intermediate/
+# Built by Scripts/BuildWeft.ps1 from a weft checkout.
+Source/ThirdParty/WeftLibrary/include/
+Source/ThirdParty/WeftLibrary/lib/
+Source/ThirdParty/WeftLibrary/WEFT_VERSION

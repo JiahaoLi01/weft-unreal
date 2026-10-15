@@ -1,0 +1,64 @@
+# weft-unreal
+
+把 [weft](https://github.com/JiahaoLi01/weft)（HTML、CSS、DOM 与 JavaScript 的游戏 UI 运行时）接进 Unreal Engine 5 的插件。页面在游戏线程上运行，帧由 weft 对应当前 RHI 的后端画进 Slate 的输出：用的是引擎自己的 GPU 设备与命令列表，不经 CPU 拷贝，也不另开设备。
+
+当前状态（2026-10-15）：实验版。Win64、UE 5.8、D3D12 RHI 已在 CaseKargaroo 里跑通（城市标签）。
+
+## 目录
+
+| 位置 | 内容 |
+| --- | --- |
+| `Weft.uplugin` | 插件描述，运行时模块 `Weft` |
+| `Native/` | 把 weft 编成一个 DLL 的 CMake 工程：链接 weft 的静态库，只导出 `include/weft` 的 C ABI（`weft.def` 从头文件生成），所以 weft 的 FreeType、HarfBuzz 与 UE 的互不相见 |
+| `Scripts/BuildWeft.ps1` | 用一份 weft 签出编译 DLL，把头文件、导入库与 DLL 放进插件 |
+| `Source/ThirdParty/WeftLibrary` | 外部模块：头文件与导入库（脚本生成，不入库）；没有它们时 `WITH_WEFT=0`，插件照常编译、界面不画 |
+| `Source/Weft` | 运行时模块：子系统、View、Slate 控件、渲染 |
+
+## 编译 weft
+
+需要 CMake 3.25+、Visual Studio 2022；装了 Vulkan SDK 1.4.363.0 时连 Vulkan 后端一起编。weft 的 D3D12 后端目前在 weft 的 `unreal` 分支上。
+
+```powershell
+pwsh Plugins/Weft/Scripts/BuildWeft.ps1 -WeftSource F:/Projects/weft
+```
+
+不给 `-WeftSource` 时找环境变量 `WEFT_SOURCE_DIR`，再找游戏工程旁边的 `weft` 目录。产物：`Binaries/ThirdParty/Weft/Win64/weft.dll`（随包发布，`RuntimeDependencies`）、`Source/ThirdParty/WeftLibrary/{include,lib}`，以及记录 weft 提交的 `WEFT_VERSION`。插件加载 DLL 时在日志里打出它的 weft 提交。weft 更新（比如 rebase 到 weft 的主分支）后重跑脚本。
+
+## 用法
+
+```cpp
+// 游戏线程：一个 View，载入一个页面目录（page.json，或 page.js 加 page.css、keyframes.css）
+UWeftView* View = UWeftSubsystem::Get()->CreateView();
+View->LoadDirectory(FPaths::ProjectContentDir() / TEXT("UI/Hud"));
+View->OnMessage.AddUObject(this, &AMyHud::OnPageMessage);        // weft.engine.send / call
+GetWorld()->GetGameViewport()->AddViewportWidgetContent(SNew(SWeftViewport).View(View), 10);
+
+// 低频数据：事件与视图模型（JSON）
+View->Emit(TEXT("units"), Json, /*bLatest*/ true);                // weft.engine.on('units', ...)
+View->SetModel(TEXT("camera"), TEXT("{\"tier\":\"Mid\"}"));       // weft.engine.model('camera')
+
+// 每帧跟着场景走的元素：锚点（页面写 data-anchor="<Key>"），由渲染线程直接移动，不跑脚本、不重排
+View->SetAnchors(Anchors);   // FWeftAnchor: Key, Position（逻辑 px）, Scale, Depth, bHidden, bBehind
+```
+
+- `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位，设备缩放即 Slate 的缩放）、推进页面、把帧交给渲染线程。指针在显示可交互光标（`auto`、`default`、`none` 以外）的元素上时交给页面，其余交给下面的游戏视口。
+- 锚点随这一帧的帧数据一起交给渲染线程，在录制前写入 View：锚定的元素与这一帧的 3D 画面同步，不会晚一帧。
+- 页面的诊断（脚本异常、样式做不出场景）打在 `LogWeft`。
+
+## 渲染
+
+- `FWeftRenderer`（每个 weft 运行时一个）在第一次画时按当前 RHI 选后端 `IWeftRhiBackend`：
+  - D3D12：weft 的 D3D12 后端（`render_backend_d3d12.h`）用 RHI 的设备，把帧录进 RHI 自己的命令列表（在 RDG 的一个 pass 里，先冲掉 RHI 的 barrier）。录完 signal 一个手动 fence：既关闭 RHI 的命令列表，让 RHI 重设它的状态，也告诉 weft 哪次录制在 GPU 上完成了。
+  - Vulkan：weft 已有 Vulkan 后端（录进宿主的命令缓冲），接到 UE 的 Vulkan RHI 是下一步。
+  - Metal 及主机平台：等 weft 有对应的后端；插件这一层的接口不变。
+- weft 的渲染器只认它的创建线程，而 UE 5 的 RHI 在任务线程上执行命令列表的 lambda：插件给渲染器一个自己的线程（`FWeftOwnerThread`），lambda 把工作交给它并等它做完，录制仍落在命令列表里 lambda 的位置。
+- Slate：控件画一个自定义元素，在 Slate 的渲染图里加 pass。控件在输出的左上角时 weft 直接画进输出；不在时（比如编辑器里的 PIE）先把那块拷进一张同样大小的纹理，weft 画在上面（`backdrop-filter` 也读得到游戏画面），再拷回去。
+- 目标格式：BGRA8、RGBA8，以及 10 位的 `PF_A2B10G10R10`（UE 5 默认的后缓冲）。别的格式（HDR 输出）记一次警告、不画。
+
+## 限制
+
+- 只有 Win64 + D3D12；D3D11、Vulkan RHI 下不画（记警告）。
+- 输入只有指针（移动、按键、滚轮、离开）；键盘、IME 与手柄还没有。
+- 字体用系统字体（weft 的默认）；项目字体以后加设置。
+- 一个运行时一个渲染器：所有 View 由同一个 weft 渲染器画。
+- 没有 UMG 包装（`UWidget`）与蓝图节点以外的编辑器工具。
