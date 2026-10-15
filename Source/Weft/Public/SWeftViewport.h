@@ -9,14 +9,18 @@ class UWeftView;
 
 /**
  * A View on screen: sized to the widget (logical px are Slate units, device px Slate's pixels), advanced every frame,
- * drawn where the widget is in Slate's order. The pointer goes to the page over elements that show an interactive
- * cursor (anything but auto, default and none); elsewhere it passes on (to the game, under a game viewport).
+ * drawn where the widget is in Slate's order. An interactive view takes the pointer's buttons and wheel over the page's
+ * elements that take pointer events (CSS pointer-events), and lets them pass elsewhere (to the game, under a game
+ * viewport); the pointer's moves reach both. A view that is not interactive (labels, say) is invisible to the pointer:
+ * what lies beneath it gets the input.
  */
 class WEFT_API SWeftViewport : public SLeafWidget
 {
 public:
 	SLATE_BEGIN_ARGS(SWeftViewport) {}
 		SLATE_ARGUMENT(UWeftView*, View)
+		/** Whether the page takes pointer input; false for a page that only shows things. */
+		SLATE_ARGUMENT_DEFAULT(bool, Interactive) { true };
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -24,6 +28,10 @@ public:
 	/** The View's logical px of a point in the widget's window, in Slate's pixels (a viewport's own pixels for a widget
 	 *  that covers a game viewport); the widget's last geometry. */
 	FVector2D PixelToLogical(FVector2D WindowPixel) const;
+
+	/** Whether the pointer was over an element of the page that takes it, at its last move over the widget (an
+	 *  interactive view only): the game may ignore the pointer then, as it gets no clicks there. */
+	bool IsPointerOverPage() const { return bPointerOverPage; }
 
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
@@ -39,12 +47,14 @@ public:
 	virtual FCursorReply OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const override;
 
 private:
-	/** Whether the page takes the pointer at a point of the widget (logical px). */
-	bool Interactive(FVector2D Local, FString* OutCursor = nullptr) const;
+	/** Whether the page takes the pointer at a point of the widget (logical px): an element other than the root takes
+	 *  pointer events there. */
+	bool TakesPointer(FVector2D Local, FString* OutCursor = nullptr) const;
 	static uint32 Buttons(const FPointerEvent& MouseEvent);
 
 	TWeakObjectPtr<UWeftView> View;
 	TSharedPtr<FWeftSlateDrawer, ESPMode::ThreadSafe> Drawer;
 	FVector2D LastPosition = FVector2D::ZeroVector;
 	float LastScale = 1.f;
+	bool bPointerOverPage = false;
 };

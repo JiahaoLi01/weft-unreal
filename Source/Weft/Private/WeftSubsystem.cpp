@@ -1,6 +1,7 @@
 #include "WeftSubsystem.h"
 
 #include "Engine/Engine.h"
+#include "Misc/Paths.h"
 #include "Render/WeftRenderer.h"
 #include "RenderingThread.h"
 #include "WeftModule.h"
@@ -64,6 +65,48 @@ void UWeftSubsystem::Deinitialize()
 UWeftSubsystem* UWeftSubsystem::Get()
 {
 	return GEngine ? GEngine->GetEngineSubsystem<UWeftSubsystem>() : nullptr;
+}
+
+bool UWeftSubsystem::AddFont(const FString& Family, const FString& File, int32 Weight, bool bItalic, int32 FaceIndex)
+{
+#if WITH_WEFT
+	if (!Runtime)
+	{
+		return false;
+	}
+	const FTCHARToUTF8 Name(*Family);
+	const FTCHARToUTF8 Path(*FPaths::ConvertRelativePathToFull(File));
+	weft_font_face Face{sizeof(Face)};
+	Face.weight = uint32(FMath::Clamp(Weight, 1, 1000));
+	Face.italic = bItalic ? 1 : 0;
+	Face.face_index = uint32(FMath::Max(FaceIndex, 0));
+	Face.family = Name.Get();
+	Face.family_size = size_t(Name.Length());
+	Face.path = Path.Get();
+	Face.path_size = size_t(Path.Length());
+	if (const weft_result Result = weft_runtime_add_font(Runtime, &Face); Result != WEFT_OK)
+	{
+		UE_LOG(LogWeft, Warning, TEXT("Weft: font %s (%s) not added: %s"), *Family, *File, UTF8_TO_TCHAR(weft_result_string(Result)));
+		return false;
+	}
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool UWeftSubsystem::AddFallbackFamily(const FString& Family)
+{
+#if WITH_WEFT
+	if (!Runtime)
+	{
+		return false;
+	}
+	const FTCHARToUTF8 Name(*Family);
+	return weft_runtime_add_fallback_family(Runtime, Name.Get(), size_t(Name.Length())) == WEFT_OK;
+#else
+	return false;
+#endif
 }
 
 UWeftView* UWeftSubsystem::CreateView()

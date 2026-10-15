@@ -30,6 +30,15 @@ public:
 
 	bool IsAvailable() const { return Runtime != nullptr; }
 
+	/**
+	 * A font file the pages may use by Family (CSS font-family), with its weight (1-1000), style and face in a
+	 * collection; before the runtime's first page loads (false after, or for a file weft cannot open). The platform's
+	 * installed fonts are there already.
+	 */
+	bool AddFont(const FString& Family, const FString& File, int32 Weight = 400, bool bItalic = false, int32 FaceIndex = 0);
+	/** A family tried for characters no family of an element's font-family list covers; before the first page loads. */
+	bool AddFallbackFamily(const FString& Family);
+
 	/** The render side, shared with the widgets' draws. */
 	TSharedPtr<FWeftRenderer, ESPMode::ThreadSafe> GetRenderer() const { return Renderer; }
 

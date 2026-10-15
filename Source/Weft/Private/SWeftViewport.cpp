@@ -28,6 +28,10 @@ void SWeftViewport::Construct(const FArguments& InArgs)
 	// The page moves every frame (its anchors at least): paint every frame.
 	SetCanTick(true);
 	ForceVolatile(true);
+	if (!InArgs._Interactive)
+	{
+		SetVisibility(EVisibility::HitTestInvisible);
+	}
 }
 
 FVector2D SWeftViewport::PixelToLogical(FVector2D WindowPixel) const
@@ -81,7 +85,7 @@ uint32 SWeftViewport::Buttons(const FPointerEvent& MouseEvent)
 		(MouseEvent.IsMouseButtonDown(EKeys::MiddleMouseButton) ? 4u : 0u);
 }
 
-bool SWeftViewport::Interactive(FVector2D Local, FString* OutCursor) const
+bool SWeftViewport::TakesPointer(FVector2D Local, FString* OutCursor) const
 {
 	const UWeftView* Page = View.Get();
 	FString Cursor;
@@ -90,7 +94,7 @@ bool SWeftViewport::Interactive(FVector2D Local, FString* OutCursor) const
 	{
 		*OutCursor = Cursor;
 	}
-	return bElement && Cursor != TEXT("auto") && Cursor != TEXT("default") && Cursor != TEXT("none");
+	return bElement;
 }
 
 FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
@@ -100,6 +104,7 @@ FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEve
 	{
 		Page->Pointer(EWeftPointer::Move, Local, Buttons(MouseEvent));
 	}
+	bPointerOverPage = TakesPointer(Local);
 	// The game sees the pointer move too, unless the page holds it.
 	return HasMouseCapture() ? FReply::Handled() : FReply::Unhandled();
 }
@@ -108,7 +113,7 @@ FReply SWeftViewport::OnMouseButtonDown(const FGeometry& MyGeometry, const FPoin
 {
 	const FVector2D Local = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
 	UWeftView* Page = View.Get();
-	if (!Page || !Interactive(Local))
+	if (!Page || !TakesPointer(Local))
 	{
 		return FReply::Unhandled();
 	}
@@ -133,7 +138,7 @@ FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEv
 {
 	const FVector2D Local = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
 	UWeftView* Page = View.Get();
-	if (!Page || !Interactive(Local))
+	if (!Page || !TakesPointer(Local))
 	{
 		return FReply::Unhandled();
 	}
@@ -144,6 +149,7 @@ FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEv
 
 void SWeftViewport::OnMouseLeave(const FPointerEvent& MouseEvent)
 {
+	bPointerOverPage = false;
 	if (UWeftView* Page = View.Get())
 	{
 		Page->Pointer(EWeftPointer::Leave, FVector2D::ZeroVector, 0);
@@ -153,7 +159,7 @@ void SWeftViewport::OnMouseLeave(const FPointerEvent& MouseEvent)
 FCursorReply SWeftViewport::OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const
 {
 	FString Cursor;
-	if (!Interactive(MyGeometry.AbsoluteToLocal(CursorEvent.GetScreenSpacePosition()), &Cursor))
+	if (!TakesPointer(MyGeometry.AbsoluteToLocal(CursorEvent.GetScreenSpacePosition()), &Cursor))
 	{
 		return FCursorReply::Unhandled();
 	}
