@@ -10,6 +10,7 @@
 #include "Templates/RefCounting.h"
 #include "weft/render_backend.h"
 #include "weft/render_backend_d3d12.h"
+#include "weft/render_external_texture.h"
 
 class FWeftOwnerThread;
 
@@ -18,7 +19,8 @@ class FWeftOwnerThread;
  * command list, after its barriers, where the RHI stands. A manual fence signalled after each recording closes the
  * RHI's command list (so the RHI sets all its state again) and tells weft when the GPU completed the recording. The
  * RHI's calls run on the thread that executes the command list; weft's on the renderer's owner thread, which the
- * executing thread waits for.
+ * executing thread waits for. The engine's named textures (-weft-texture) are imported into weft the first time a frame
+ * names them, as frozen textures, and released when no frame has named them for a while.
  */
 class FWeftD3D12Backend final : public IWeftRhiBackend
 {
@@ -34,8 +36,34 @@ private:
 	bool Open(ID3D12Device* Device);
 	/** Hands weft the recordings the GPU completed. */
 	void Retire();
+	/** An engine texture a frame names, as the executing thread found it. */
+	struct FNamedTexture
+	{
+		FRHITexture* Texture = nullptr;
+		ID3D12Resource* Resource = nullptr;
+		uint32 Format = 0;
+		FIntPoint Size = FIntPoint::ZeroValue;
+		uint32 Mips = 1;
+	};
 	/** Records the frame; true when it drew, the recording's serial then Serial. */
-	bool Record(ID3D12GraphicsCommandList* List, ID3D12Resource* Target, FIntPoint Size, uint32 Format, FWeftFramePacket& Packet);
+	bool Record(ID3D12GraphicsCommandList* List, ID3D12Resource* Target, FIntPoint Size, uint32 Format, FWeftFramePacket& Packet,
+		TConstArrayView<FNamedTexture> Named);
+	/** A texture's import into weft, made the first time; null when weft refuses it (logged once). */
+	const weft_render_handle* Import(const FNamedTexture& Named);
+	/** Releases the imports no frame named for a while, or all of them. */
+	void ReleaseImports(bool bAll);
+
+	/** The engine textures weft holds, by RHI texture (holding it), and when a frame last named each. */
+	struct FImported
+	{
+		weft_render_handle Handle{};
+		FTextureRHIRef Texture;
+		uint64 LastDraw = 0;
+	};
+	TMap<FRHITexture*, FImported> Imported;
+	TSet<FRHITexture*> Refused;
+	uint64 Draws = 0;
+	uint64 NextContentId = 1;
 
 	TUniquePtr<FWeftOwnerThread> Owner;
 	weft_render_d3d12* Backend = nullptr;

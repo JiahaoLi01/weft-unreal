@@ -9,6 +9,8 @@
 namespace
 {
 	BEGIN_SHADER_PARAMETER_STRUCT(FWeftPassParameters, )
+		// The engine's textures the page samples: shader resources while weft draws.
+		RDG_TEXTURE_ACCESS_ARRAY(Textures)
 		RENDER_TARGET_BINDING_SLOTS()
 	END_SHADER_PARAMETER_STRUCT()
 }
@@ -69,6 +71,10 @@ void FWeftSlateDrawer::Draw_RenderThread(FRDGBuilder& GraphBuilder, const FDrawP
 	}
 	FWeftPassParameters* Parameters = GraphBuilder.AllocParameters<FWeftPassParameters>();
 	Parameters->RenderTargets[0] = FRenderTargetBinding(Target, ERenderTargetLoadAction::ELoad);
+	for (const FWeftPacketTexture& Named : Packet->Textures)
+	{
+		Parameters->Textures.Emplace(RegisterExternalTexture(GraphBuilder, Named.Texture, TEXT("Weft.Texture")), ERHIAccess::SRVGraphics);
+	}
 	// weft records its own passes into the RHI's command list (no render pass of the graph's), on the thread that
 	// executes it, in the graph's order.
 	GraphBuilder.AddPass(RDG_EVENT_NAME("Weft"), Parameters,

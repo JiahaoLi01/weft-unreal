@@ -1,6 +1,9 @@
 #include "WeftSubsystem.h"
 
+#include "Algo/AllOf.h"
 #include "Engine/Engine.h"
+#include "Engine/Texture.h"
+#include "TextureResource.h"
 #include "Misc/Paths.h"
 #include "Render/WeftRenderer.h"
 #include "RenderingThread.h"
@@ -107,6 +110,41 @@ bool UWeftSubsystem::AddFallbackFamily(const FString& Family)
 #else
 	return false;
 #endif
+}
+
+bool UWeftSubsystem::SetTexture(const FString& Name, UTexture* Texture)
+{
+	const bool bValid = !Name.IsEmpty() && Name.Len() <= 64 &&
+		Algo::AllOf(Name, [](TCHAR C) { return (FChar::IsAlnum(C) && C < 128) || C == TEXT('-') || C == TEXT('_'); });
+	if (!bValid)
+	{
+		UE_LOG(LogWeft, Warning, TEXT("Weft: \"%s\" is not a texture name (letters, digits, - and _, at most 64)."), *Name);
+		return false;
+	}
+	if (Texture)
+	{
+		Textures.Add(Name, Texture);
+	}
+	else
+	{
+		Textures.Remove(Name);
+	}
+	return true;
+}
+
+void UWeftSubsystem::GetTextures(TArray<TPair<FString, FTextureResource*>>& Out) const
+{
+	Out.Reset();
+	for (const TPair<FString, TWeakObjectPtr<UTexture>>& Pair : Textures)
+	{
+		if (UTexture* Texture = Pair.Value.Get())
+		{
+			if (FTextureResource* Resource = Texture->GetResource())
+			{
+				Out.Emplace(Pair.Key, Resource);
+			}
+		}
+	}
 }
 
 UWeftView* UWeftSubsystem::CreateView()

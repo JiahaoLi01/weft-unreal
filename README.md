@@ -44,6 +44,8 @@ View->SetAnchors(Anchors);   // FWeftAnchor: Key, Position（逻辑 px）, Scale
 - `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位，设备缩放即 Slate 的缩放）、推进页面、把帧交给渲染线程。指针在显示可交互光标（`auto`、`default`、`none` 以外）的元素上时交给页面，其余交给下面的游戏视口。
 - 锚点随这一帧的帧数据一起交给渲染线程，在录制前写入 View：锚定的元素与这一帧的 3D 画面同步，不会晚一帧。
 - 页面的诊断（脚本异常、样式做不出场景）打在 `LogWeft`。
+- 页面文件夹里的图片：CSS 写 `background-image: url(../Textures/x.png)`（PNG），像背景图那样铺排。相对路径从页面的基准（`FWeftPage::Base`，`FromDirectory` 设为样式表的路径）算起，View 用 `FFileHelper` 读文件（打包后从 pak 读，所以页面文件夹要随包，如 `DirectoriesToAlwaysStageAsUFS`）。读不到或不是 PNG 时打一条页面诊断，那个背景不画图。
+- 引擎的纹理：`UWeftSubsystem::SetTexture(Name, Texture)`，页面写 `background-image: -weft-texture(Name)`。
 
 ## 渲染
 
@@ -59,6 +61,7 @@ View->SetAnchors(Anchors);   // FWeftAnchor: Key, Position（逻辑 px）, Scale
 
 - 只有 Win64 + D3D12；D3D11、Vulkan RHI 下不画（记警告）。
 - 输入只有指针（移动、按键、滚轮、离开）；键盘、IME 与手柄还没有。
-- 字体用系统字体（weft 的默认）；项目字体以后加设置。
+- 字体用系统字体（weft 的默认），以及 `UWeftSubsystem::AddFont` 加的字体文件。
+- 页面里的图片只有 PNG 背景图（`url()`），没有 `<img>`、JPEG 与 `data:` URL。
 - 一个运行时一个渲染器：所有 View 由同一个 weft 渲染器画。
 - 没有 UMG 包装（`UWidget`）与蓝图节点以外的编辑器工具。

@@ -52,6 +52,7 @@ bool FWeftPage::FromDirectory(const FString& Directory, FWeftPage& Out, FString*
 		}
 		Json->TryGetStringField(TEXT("root"), Out.Root);
 		Json->TryGetBoolField(TEXT("crpgBridge"), Out.bCrpgBridge);
+		Out.Base = Directory / (Stylesheet.IsEmpty() ? FString(TEXT("page.css")) : Stylesheet);
 	}
 	else
 	{
@@ -63,6 +64,7 @@ bool FWeftPage::FromDirectory(const FString& Directory, FWeftPage& Out, FString*
 		Out.Scripts.Emplace(TEXT("page.js"), MoveTemp(Source));
 		Read(TEXT("page.css"), Out.Stylesheet);
 		Read(TEXT("keyframes.css"), Out.Keyframes);
+		Out.Base = Directory / TEXT("page.css");
 	}
 	if (Out.Scripts.IsEmpty())
 	{

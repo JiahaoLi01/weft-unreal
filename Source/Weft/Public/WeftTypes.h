@@ -50,11 +50,17 @@ struct WEFT_API FWeftPage
 	FString Root;
 	/** Installs CRPG Framework's window.ue.sendEvent, __ue_dispatch and __vm_update over weft.engine. */
 	bool bCrpgBridge = false;
+	/**
+	 * Where the stylesheet's relative URLs (background-image: url()) start: its file's path, or a folder ending in '/'.
+	 * The View reads the files they name from disk, or from a pak in a packaged game; empty, they resolve from the
+	 * working directory.
+	 */
+	FString Base;
 
 	/**
 	 * The page in a folder: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root": "...",
 	 * "crpgBridge": false}, paths relative to the folder), or without it page.js, with page.css and keyframes.css when
-	 * they are there. False, with why in OutError, when a file is missing.
+	 * they are there; its base the stylesheet's path. False, with why in OutError, when a file is missing.
 	 */
 	static bool FromDirectory(const FString& Directory, FWeftPage& Out, FString* OutError = nullptr);
 };

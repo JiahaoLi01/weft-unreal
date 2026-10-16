@@ -5,7 +5,9 @@
 
 #include "WeftSubsystem.generated.h"
 
+class FTextureResource;
 class FWeftRenderer;
+class UTexture;
 class UWeftView;
 struct weft_runtime;
 
@@ -39,6 +41,17 @@ public:
 	/** A family tried for characters no family of an element's font-family list covers; before the first page loads. */
 	bool AddFallbackFamily(const FString& Family);
 
+	/**
+	 * A texture of the engine that pages draw by name: CSS `background-image: -weft-texture(Name)` (with
+	 * background-size, -position, -repeat and the rest), on every View. Null takes the name away. Names are letters,
+	 * digits, '-' and '_', at most 64 (false for another). The texture's contents must stay as they are while it is
+	 * named (weft samples it as a frozen texture); a texture that changes is named anew. Linear or sRGB RGBA8 and
+	 * BGRA8, and RGBA16F, are drawn. Game thread.
+	 */
+	bool SetTexture(const FString& Name, UTexture* Texture);
+	/** The named textures whose resources exist now, for a frame's draw (game thread). */
+	void GetTextures(TArray<TPair<FString, FTextureResource*>>& Out) const;
+
 	/** The render side, shared with the widgets' draws. */
 	TSharedPtr<FWeftRenderer, ESPMode::ThreadSafe> GetRenderer() const { return Renderer; }
 
@@ -46,4 +59,5 @@ private:
 	weft_runtime* Runtime = nullptr;
 	TSharedPtr<FWeftRenderer, ESPMode::ThreadSafe> Renderer;
 	TArray<TWeakObjectPtr<UWeftView>> Views;
+	TMap<FString, TWeakObjectPtr<UTexture>> Textures;
 };

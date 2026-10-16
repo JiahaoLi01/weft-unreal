@@ -1,6 +1,7 @@
 #include "WeftView.h"
 
 #include "HAL/PlatformTime.h"
+#include "Misc/FileHelper.h"
 #include "Render/WeftFramePacket.h"
 #include "WeftModule.h"
 #include "WeftValue.h"
@@ -28,6 +29,18 @@ namespace
 		}
 		return true;
 	}
+
+	// A file a page names (a url() image), by the path weft resolved against the page's base: read as the engine reads
+	// files, from a pak in a packaged game. Unwritten when there is none (weft diagnoses it).
+	weft_result ReadResource(void*, const char* Path, size_t PathSize, weft_resource_writer* File)
+	{
+		TArray<uint8> Bytes;
+		if (!FFileHelper::LoadFileToArray(Bytes, *FromUtf8(Path, PathSize), FILEREAD_Silent))
+		{
+			return WEFT_OK;
+		}
+		return weft_resource_writer_set(File, Bytes.GetData(), size_t(Bytes.Num()));
+	}
 } // namespace
 #endif
 
@@ -45,6 +58,7 @@ bool UWeftView::Open(weft_runtime* InRuntime)
 	Slot = View.slot;
 	Generation = View.generation;
 	StartSeconds = FPlatformTime::Seconds();
+	Succeeded(weft_view_set_resource_reader(Runtime, View, &ReadResource, nullptr), TEXT("set the resource reader"));
 	return true;
 #else
 	return false;
@@ -103,6 +117,7 @@ bool UWeftView::Load(const FWeftPage& Page)
 	const FTCHARToUTF8 Stylesheet(*Page.Stylesheet);
 	const FTCHARToUTF8 Keyframes(*Page.Keyframes);
 	const FTCHARToUTF8 Root(*Page.Root);
+	const FTCHARToUTF8 Base(*Page.Base);
 	weft_page_desc Desc{sizeof(Desc)};
 	Desc.flags = Page.bCrpgBridge ? WEFT_PAGE_CRPG_BRIDGE : 0;
 	Desc.scripts = Scripts.GetData();
@@ -113,6 +128,8 @@ bool UWeftView::Load(const FWeftPage& Page)
 	Desc.keyframes_size = size_t(Keyframes.Length());
 	Desc.root = Page.Root.IsEmpty() ? nullptr : Root.Get();
 	Desc.root_size = Page.Root.IsEmpty() ? 0 : size_t(Root.Length());
+	Desc.base = Base.Get();
+	Desc.base_size = size_t(Base.Length());
 	const bool bLoaded = Succeeded(weft_view_load(Runtime, Handle(RuntimeId, Slot, Generation), &Desc), TEXT("load a page"));
 	// The page's exceptions, if any.
 	Advance();
