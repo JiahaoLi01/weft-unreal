@@ -291,9 +291,15 @@ int32 UWeftSubsystem::AddEffects(const FString& ManifestFile)
 		const TArray<uint8>& SpirvLinear = Code(TEXT(".linear.spv"));
 		bool bAnimated = false;
 		(*Effect)->TryGetBoolField(TEXT("animated"), bAnimated);
+		bool bBackdrop = false;
+		(*Effect)->TryGetBoolField(TEXT("backdrop"), bBackdrop);
+		double BackdropMargin = 0;
+		(*Effect)->TryGetNumberField(TEXT("backdropMargin"), BackdropMargin);
 		const FTCHARToUTF8& EffectName = Text(Name);
 		weft_effect_desc Desc{sizeof(Desc)};
 		Desc.animated = bAnimated ? 1 : 0;
+		Desc.backdrop = bBackdrop ? 1 : 0;
+		Desc.backdrop_margin = bBackdrop ? float(BackdropMargin) : 0.f;
 		Desc.name = EffectName.Get();
 		Desc.name_size = size_t(EffectName.Length());
 		Desc.parameters = Parameters.GetData();

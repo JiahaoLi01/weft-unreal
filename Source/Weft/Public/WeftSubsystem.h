@@ -49,11 +49,13 @@ public:
 	int32 AddFonts(const FString& ManifestFile);
 
 	/**
-	 * The UI shader effects a page lists in a manifest ({"effects": [{"name", "bytecode", "animated", "parameters":
-	 * [{"name", "type", "initial"}], "textures": [{"name", "path", "format"}]}]}, paths relative to the file): each
-	 * effect's bytecode (<bytecode>.encoded.dxbc, .linear.dxbc, .encoded.spv, .linear.spv, which weft's
-	 * cmake/compile_effect.cmake writes) and PNG textures ("data": the red channel; "srgb": color), registered for every
-	 * View's pages (-weft-effect(name)). An effect registered already is skipped. The number of effects added.
+	 * The UI shader effects a page lists in a manifest ({"effects": [{"name", "bytecode", "animated", "backdrop",
+	 * "backdropMargin", "parameters": [{"name", "type", "initial"}], "textures": [{"name", "path", "format"}]}]}, paths
+	 * relative to the file): each effect's bytecode (<bytecode>.encoded.dxbc, .linear.dxbc, .encoded.spv, .linear.spv,
+	 * which weft's cmake/compile_effect.cmake writes) and PNG textures ("data": the red channel; "srgb": color),
+	 * registered for every View's pages (-weft-effect(name)). "backdrop": the effect reads what lies behind its element
+	 * (refraction, heat haze; weft's docs/effects.md), from a copy reaching "backdropMargin" CSS px past its box. An
+	 * effect registered already is skipped. The number of effects added.
 	 */
 	int32 AddEffects(const FString& ManifestFile);
 
