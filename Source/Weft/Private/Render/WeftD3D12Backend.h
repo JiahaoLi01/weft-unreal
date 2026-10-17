@@ -74,7 +74,8 @@ private:
 	uint64 Serial = 0;
 	uint64 Completed = 0;
 	bool bFailed = false;
-	bool bWarnedDraw = false;
+	// The reasons of frames that did not draw, logged once each.
+	TSet<FString> WarnedDraws;
 };
 
 #endif

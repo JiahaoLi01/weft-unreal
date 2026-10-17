@@ -23,12 +23,12 @@ void SWeftViewport::Construct(const FArguments& InArgs)
 	ForceVolatile(true);
 	if (InArgs._View)
 	{
-		AddView(InArgs._View, 0, InArgs._Interactive);
+		AddView(InArgs._View, 0, InArgs._Interactive, InArgs._Routing);
 	}
 	UpdateVisibility();
 }
 
-void SWeftViewport::AddView(UWeftView* InView, int32 Order, bool bInteractive)
+void SWeftViewport::AddView(UWeftView* InView, int32 Order, bool bInteractive, EWeftPointerRouting Routing)
 {
 	if (!InView)
 	{
@@ -39,6 +39,7 @@ void SWeftViewport::AddView(UWeftView* InView, int32 Order, bool bInteractive)
 	Layer.View = InView;
 	Layer.Order = Order;
 	Layer.bInteractive = bInteractive;
+	Layer.Routing = Routing;
 	if (const UWeftSubsystem* Weft = UWeftSubsystem::Get())
 	{
 		if (Weft->GetRenderer())
@@ -91,7 +92,9 @@ void SWeftViewport::Tick(const FGeometry& AllottedGeometry, const double InCurre
 	{
 		if (UWeftView* Page = Layer.View.Get())
 		{
-			Page->Resize(AllottedGeometry.GetLocalSize(), AllottedGeometry.Scale);
+			// CSS px are the widget's units divided by the page's content scale; device px Slate's.
+			const float Content = Page->GetContentScale();
+			Page->Resize(AllottedGeometry.GetLocalSize() / Content, AllottedGeometry.Scale * Content);
 			Page->Advance();
 		}
 	}
@@ -122,7 +125,7 @@ int32 SWeftViewport::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGe
 		{
 			continue;
 		}
-		const FVector2D Size = AllottedGeometry.GetLocalSize() * Page->GetDeviceScale();
+		const FVector2D Size = Page->GetLogicalSize() * Page->GetDeviceScale();
 		const FIntRect Rect(Min, Min + FIntPoint(FMath::CeilToInt(Size.X), FMath::CeilToInt(Size.Y)));
 		ENQUEUE_RENDER_COMMAND(WeftPending)(
 			[Drawer = Entry.Drawer, Packet = MoveTemp(Packet), Rect, Textures](FRHICommandListImmediate&) mutable
@@ -154,10 +157,20 @@ uint32 SWeftViewport::Buttons(const FPointerEvent& MouseEvent)
 		(MouseEvent.IsMouseButtonDown(EKeys::MiddleMouseButton) ? 4u : 0u);
 }
 
+FVector2D SWeftViewport::ToPage(const UWeftView* Page, FVector2D Local)
+{
+	return Page ? Local / Page->GetContentScale() : Local;
+}
+
+bool SWeftViewport::InteractiveCursor(const FString& Cursor)
+{
+	return !Cursor.IsEmpty() && Cursor != TEXT("auto") && Cursor != TEXT("default") && Cursor != TEXT("none");
+}
+
 bool SWeftViewport::TakesPointer(const UWeftView* Page, FVector2D Local, FString* OutCursor)
 {
 	FString Cursor;
-	const bool bElement = Page && Page->HitTest(Local, Cursor);
+	const bool bElement = Page && Page->HitTest(ToPage(Page, Local), Cursor);
 	if (OutCursor)
 	{
 		*OutCursor = Cursor;
@@ -165,12 +178,18 @@ bool SWeftViewport::TakesPointer(const UWeftView* Page, FVector2D Local, FString
 	return bElement;
 }
 
-int32 SWeftViewport::LayerTakingPointer(FVector2D Local, FString* OutCursor) const
+int32 SWeftViewport::LayerTakingPointer(FVector2D Local, FString* OutCursor, bool bWheel) const
 {
 	for (int32 I = Layers.Num() - 1; I >= 0; --I)
 	{
-		if (Layers[I].bInteractive && TakesPointer(Layers[I].View.Get(), Local, OutCursor))
+		FString Cursor;
+		if (Layers[I].bInteractive && TakesPointer(Layers[I].View.Get(), Local, &Cursor) &&
+			(bWheel || Layers[I].Routing == EWeftPointerRouting::Element || InteractiveCursor(Cursor)))
 		{
+			if (OutCursor)
+			{
+				*OutCursor = Cursor;
+			}
 			return I;
 		}
 	}
@@ -186,7 +205,7 @@ FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEve
 		Layers[I].bPointerOver = I == Over;
 		if (UWeftView* Page = Layers[I].View.Get())
 		{
-			Page->Pointer(EWeftPointer::Move, Local, Buttons(MouseEvent));
+			Page->Pointer(EWeftPointer::Move, ToPage(Page, Local), Buttons(MouseEvent));
 		}
 	}
 	// The game sees the pointer move too, unless a page holds it.
@@ -203,7 +222,7 @@ FReply SWeftViewport::OnMouseButtonDown(const FGeometry& MyGeometry, const FPoin
 		return FReply::Unhandled();
 	}
 	Captor = Page;
-	Page->Pointer(EWeftPointer::Down, Local, Buttons(MouseEvent));
+	Page->Pointer(EWeftPointer::Down, ToPage(Page, Local), Buttons(MouseEvent));
 	return FReply::Handled().CaptureMouse(AsShared());
 }
 
@@ -215,7 +234,8 @@ FReply SWeftViewport::OnMouseButtonUp(const FGeometry& MyGeometry, const FPointe
 	}
 	if (UWeftView* Page = Captor.Get())
 	{
-		Page->Pointer(EWeftPointer::Up, MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition()), Buttons(MouseEvent));
+		Page->Pointer(EWeftPointer::Up, ToPage(Page, MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())),
+			Buttons(MouseEvent));
 	}
 	if (Buttons(MouseEvent))
 	{
@@ -228,15 +248,18 @@ FReply SWeftViewport::OnMouseButtonUp(const FGeometry& MyGeometry, const FPointe
 FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
 	const FVector2D Local = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-	const int32 Taker = LayerTakingPointer(Local);
+	FString Cursor;
+	const int32 Taker = LayerTakingPointer(Local, &Cursor, /*bWheel*/ true);
 	UWeftView* Page = Layers.IsValidIndex(Taker) ? Layers[Taker].View.Get() : nullptr;
 	if (!Page)
 	{
 		return FReply::Unhandled();
 	}
 	// Slate's wheel is in notches, upward positive; the page's in px, downward positive (100 px a notch, as browsers).
-	Page->Pointer(EWeftPointer::Wheel, Local, Buttons(MouseEvent), FVector2D(0, -MouseEvent.GetWheelDelta() * 100.0));
-	return FReply::Handled();
+	Page->Pointer(EWeftPointer::Wheel, ToPage(Page, Local), Buttons(MouseEvent), FVector2D(0, -MouseEvent.GetWheelDelta() * 100.0));
+	// A page routed by its cursor shares the wheel with the game under the arrow.
+	return Layers[Taker].Routing == EWeftPointerRouting::Cursor && !InteractiveCursor(Cursor) ? FReply::Unhandled()
+																							   : FReply::Handled();
 }
 
 void SWeftViewport::OnMouseLeave(const FPointerEvent& MouseEvent)

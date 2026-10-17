@@ -52,6 +52,8 @@ bool FWeftPage::FromDirectory(const FString& Directory, FWeftPage& Out, FString*
 		}
 		Json->TryGetStringField(TEXT("root"), Out.Root);
 		Json->TryGetBoolField(TEXT("crpgBridge"), Out.bCrpgBridge);
+		Json->TryGetBoolField(TEXT("forgivingCss"), Out.bForgivingCss);
+		Json->TryGetBoolField(TEXT("webPlatform"), Out.bWebPlatform);
 		Out.Base = Directory / (Stylesheet.IsEmpty() ? FString(TEXT("page.css")) : Stylesheet);
 	}
 	else

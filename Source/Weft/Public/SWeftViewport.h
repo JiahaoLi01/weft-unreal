@@ -8,6 +8,19 @@ class FWeftSlateDrawer;
 class UWeftView;
 
 /**
+ * Where an interactive layer takes the pointer's buttons: wherever its page has an element that takes pointer events
+ * (Element), or only where that element shows a cursor other than the default arrow (Cursor) — for a page whose panels
+ * cover the screen with the game showing through, whose clickable parts say so with cursor: pointer and the like. Its
+ * wheel reaches the page wherever it has an element (a panel scrolls under the arrow); with Cursor the game gets it too
+ * unless the cursor there is not the arrow.
+ */
+enum class EWeftPointerRouting : uint8
+{
+	Element,
+	Cursor
+};
+
+/**
  * Views on screen, as layers: each sized to the widget (logical px are Slate units, device px Slate's pixels), advanced
  * every frame and drawn where the widget is in Slate's order, a layer of a higher order over a lower one.
  *
@@ -27,12 +40,16 @@ public:
 		SLATE_ARGUMENT_DEFAULT(UWeftView*, View) { nullptr };
 		/** Whether that first layer takes pointer input; false for a page that only shows things. */
 		SLATE_ARGUMENT_DEFAULT(bool, Interactive) { true };
+		/** How that first layer takes the pointer. */
+		SLATE_ARGUMENT_DEFAULT(EWeftPointerRouting, Routing) { EWeftPointerRouting::Element };
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
 
-	/** A view as a layer of the given order (a view added again changes its order and interactivity). */
-	void AddView(UWeftView* InView, int32 Order = 0, bool bInteractive = true);
+	/** A view as a layer of the given order (a view added again changes its order, interactivity and routing). The view
+	 *  lays out in the widget's units divided by its content scale (UWeftView::SetContentScale). */
+	void AddView(UWeftView* InView, int32 Order = 0, bool bInteractive = true,
+		EWeftPointerRouting Routing = EWeftPointerRouting::Element);
 	void RemoveView(const UWeftView* InView);
 	int32 NumViews() const { return Layers.Num(); }
 
@@ -65,13 +82,18 @@ private:
 		TSharedPtr<FWeftSlateDrawer, ESPMode::ThreadSafe> Drawer;
 		int32 Order = 0;
 		bool bInteractive = true;
+		EWeftPointerRouting Routing = EWeftPointerRouting::Element;
 		bool bPointerOver = false;
 	};
 
-	/** The topmost interactive layer whose page takes the pointer at a point of the widget (logical px), and its cursor;
-	 *  INDEX_NONE for none. */
-	int32 LayerTakingPointer(FVector2D Local, FString* OutCursor = nullptr) const;
+	/** The topmost interactive layer whose page takes the pointer at a point of the widget (its units), and its cursor;
+	 *  INDEX_NONE for none. bWheel: where the page has an element at all (the wheel reaches it whatever its routing). */
+	int32 LayerTakingPointer(FVector2D Local, FString* OutCursor = nullptr, bool bWheel = false) const;
 	static bool TakesPointer(const UWeftView* Page, FVector2D Local, FString* OutCursor = nullptr);
+	/** Whether a cursor of the page says something there takes clicks: not the default arrow. */
+	static bool InteractiveCursor(const FString& Cursor);
+	/** A point of the widget (its units) in a page's logical px. */
+	static FVector2D ToPage(const UWeftView* Page, FVector2D Local);
 	/** Visible while a layer is interactive, else invisible to the pointer. */
 	void UpdateVisibility();
 	static uint32 Buttons(const FPointerEvent& MouseEvent);

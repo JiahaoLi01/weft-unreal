@@ -119,7 +119,8 @@ bool UWeftView::Load(const FWeftPage& Page)
 	const FTCHARToUTF8 Root(*Page.Root);
 	const FTCHARToUTF8 Base(*Page.Base);
 	weft_page_desc Desc{sizeof(Desc)};
-	Desc.flags = Page.bCrpgBridge ? WEFT_PAGE_CRPG_BRIDGE : 0;
+	Desc.flags = (Page.bCrpgBridge ? WEFT_PAGE_CRPG_BRIDGE : 0u) | (Page.bForgivingCss ? WEFT_PAGE_FORGIVING_CSS : 0u) |
+		(Page.bWebPlatform ? WEFT_PAGE_WEB_PLATFORM : 0u);
 	Desc.scripts = Scripts.GetData();
 	Desc.script_count = uint32(Scripts.Num());
 	Desc.stylesheet = Stylesheet.Get();
@@ -213,6 +214,65 @@ void UWeftView::Resize(FVector2D LogicalSize, float DeviceScale)
 #endif
 }
 
+void UWeftView::SetContentScale(float InContentScale)
+{
+	ContentScale = FMath::Clamp(InContentScale, 0.1f, 10.f);
+}
+
+bool UWeftView::SetStorageItem(const FString& Key, const FString& Value, bool bRemove)
+{
+#if WITH_WEFT
+	if (!Runtime)
+	{
+		return false;
+	}
+	const FTCHARToUTF8 K(*Key);
+	const FTCHARToUTF8 V(*Value);
+	return Succeeded(weft_view_set_storage_item(Runtime, Handle(RuntimeId, Slot, Generation), K.Get(), size_t(K.Length()),
+						 bRemove ? nullptr : V.Get(), bRemove ? 0 : size_t(V.Length())),
+		TEXT("set a storage item"));
+#else
+	return false;
+#endif
+}
+
+bool UWeftView::ClearStorage()
+{
+#if WITH_WEFT
+	return Runtime && Succeeded(weft_view_clear_storage(Runtime, Handle(RuntimeId, Slot, Generation)), TEXT("clear the storage"));
+#else
+	return false;
+#endif
+}
+
+bool UWeftView::GetStorage(uint64& Revision, TMap<FString, FString>& OutItems) const
+{
+#if WITH_WEFT
+	if (!Runtime)
+	{
+		return false;
+	}
+	TMap<FString, FString> Items;
+	uint64 Current = 0;
+	const weft_result Result = weft_view_get_storage(
+		Runtime, Handle(RuntimeId, Slot, Generation), Revision,
+		[](void* User, const char* Key, size_t KeySize, const char* Value, size_t ValueSize)
+		{
+			static_cast<TMap<FString, FString>*>(User)->Add(FromUtf8(Key, KeySize), FromUtf8(Value, ValueSize));
+		},
+		&Items, &Current);
+	if (Result != WEFT_OK || (Revision && Current == Revision))
+	{
+		return false;
+	}
+	Revision = Current;
+	OutItems = MoveTemp(Items);
+	return true;
+#else
+	return false;
+#endif
+}
+
 void UWeftView::Advance()
 {
 #if WITH_WEFT
@@ -238,13 +298,39 @@ void UWeftView::Advance()
 				WeftValue::MessagePackToJson(Message->payload, Message->payload_size), Message->call_id});
 		},
 		&Messages);
+	// The page's diagnostics in the log, at the level of their kind: the console's lines as written, the rest as
+	// warnings and errors.
+	TArray<TPair<EWeftDiagnostic, FString>> Diagnostics;
+	uint32 Dropped = 0;
 	weft_view_drain_diagnostics(
 		Runtime, View,
-		[](void*, weft_view_handle, const weft_diagnostic* Diagnostic)
+		[](void* User, weft_view_handle, const weft_diagnostic* Diagnostic)
 		{
-			UE_LOG(LogWeft, Warning, TEXT("Weft page: %s"), *FromUtf8(Diagnostic->message, Diagnostic->message_size));
+			static_cast<TArray<TPair<EWeftDiagnostic, FString>>*>(User)->Emplace(EWeftDiagnostic(Diagnostic->kind),
+				FromUtf8(Diagnostic->message, Diagnostic->message_size));
 		},
-		nullptr, nullptr);
+		&Diagnostics, &Dropped);
+	for (const TPair<EWeftDiagnostic, FString>& Diagnostic : Diagnostics)
+	{
+		switch (Diagnostic.Key)
+		{
+		case EWeftDiagnostic::Console:
+			UE_LOG(LogWeft, Log, TEXT("Weft page: %s"), *Diagnostic.Value);
+			break;
+		case EWeftDiagnostic::ConsoleWarning:
+		case EWeftDiagnostic::Scene:
+			UE_LOG(LogWeft, Warning, TEXT("Weft page: %s"), *Diagnostic.Value);
+			break;
+		default:
+			UE_LOG(LogWeft, Error, TEXT("Weft page: %s"), *Diagnostic.Value);
+			break;
+		}
+		OnDiagnostic.Broadcast(Diagnostic.Key, Diagnostic.Value);
+	}
+	if (Dropped)
+	{
+		UE_LOG(LogWeft, Warning, TEXT("Weft page: %u diagnostics dropped past the view's bound"), Dropped);
+	}
 	for (const FMessage& Message : Messages)
 	{
 		OnMessage.Broadcast(Message.Name, Message.Json, Message.CallId);

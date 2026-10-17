@@ -41,9 +41,12 @@ View->SetModel(TEXT("camera"), TEXT("{\"tier\":\"Mid\"}"));       // weft.engine
 View->SetAnchors(Anchors);   // FWeftAnchor: Key, Position（逻辑 px）, Scale, Depth, bHidden, bBehind
 ```
 
-- `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位，设备缩放即 Slate 的缩放）、推进页面、把帧交给渲染线程。指针在显示可交互光标（`auto`、`default`、`none` 以外）的元素上时交给页面，其余交给下面的游戏视口。
+- `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位除以 View 的内容缩放 `SetContentScale`，设备缩放即 Slate 的缩放乘它：UI 缩放设置用它，文字仍按设备分辨率画）、推进页面、把帧交给渲染线程。每一层的指针分流（`AddView` 的 `EWeftPointerRouting`）：`Element`（默认）是页面在那里有接受指针的元素就给页面；`Cursor` 是那个元素显示可交互光标（`auto`、`default`、`none` 以外）时才给页面——整屏铺着面板、游戏从空白处透出来的页面用它；滚轮在页面有元素处都交给页面，`Cursor` 下默认箭头处游戏也收到。其余交给下面的游戏视口。
+- 页面文件夹的 `page.json` 可以写 `"forgivingCss": true`（Tailwind 这类构建工具生成的样式表：画不出的声明丢掉并打诊断，而不是拒绝页面）与 `"webPlatform": true`（console、localStorage、dataset、focus、KeyboardEvent、matchMedia）。
+- 字体与效果：`UWeftSubsystem::AddFonts(fonts.json)`（`faces` 的 `family`、`path`、`weight`、`italic`、`face`、`unicodeRange`，与 `fallback`；在第一个页面加载之前）、`AddEffects(effects.json)`（UI 着色器效果：字节码由 weft 的 `cmake/compile_effect.cmake` 编出，`BuildWeft.ps1` 把它连同外壳复制到 `Source/ThirdParty/WeftLibrary/effects/`）。
+- 页面的 localStorage：`UWeftView::SetStorageItem`（加载页面之前恢复）、`GetStorage(Revision, Items)`（修订号变了才交出，游戏据此保存）。
 - 锚点随这一帧的帧数据一起交给渲染线程，在录制前写入 View：锚定的元素与这一帧的 3D 画面同步，不会晚一帧。
-- 页面的诊断（脚本异常、样式做不出场景）打在 `LogWeft`。
+- 页面的诊断打在 `LogWeft`：console 的 log 为 Log、warn 与样式丢弃为 Warning、脚本异常与 console.error 为 Error；`UWeftView::OnDiagnostic` 也收到。帧画不出时渲染器把 weft 给的原因（`weft_renderer_last_failure`）各记一次。
 - 页面文件夹里的图片：CSS 写 `background-image: url(../Textures/x.png)`（PNG），像背景图那样铺排。相对路径从页面的基准（`FWeftPage::Base`，`FromDirectory` 设为样式表的路径）算起，View 用 `FFileHelper` 读文件（打包后从 pak 读，所以页面文件夹要随包，如 `DirectoriesToAlwaysStageAsUFS`）。读不到或不是 PNG 时打一条页面诊断，那个背景不画图。
 - 引擎的纹理：`UWeftSubsystem::SetTexture(Name, Texture)`，页面写 `background-image: -weft-texture(Name)`。
 

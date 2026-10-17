@@ -22,6 +22,22 @@ enum class EWeftPointer : uint8
 /** A message of the page: weft.engine.send (CallId 0) or weft.engine.call (complete it with CompleteCall). */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnWeftMessage, const FString& /*Name*/, const FString& /*JsonValue*/, uint64 /*CallId*/);
 
+/** What a diagnostic of the page is (weft_diagnostic_kind): an exception of its scripts, its weft.engine handlers or its
+ *  animation frames, a scene its styles cannot make, or a line of its console (the web platform's), by level. */
+enum class EWeftDiagnostic : uint8
+{
+	Script = 1,
+	Handler,
+	Frame,
+	Scene,
+	Console,
+	ConsoleWarning,
+	ConsoleError
+};
+
+/** A diagnostic of the page, after the log has it. */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnWeftDiagnostic, EWeftDiagnostic /*Kind*/, const FString& /*Message*/);
+
 /**
  * One weft View: a page, its document, script and scene, owned by the game thread (UWeftSubsystem::CreateView). The
  * engine talks to the page with events, view models and anchors; the page answers with messages. A widget
@@ -60,6 +76,26 @@ public:
 	FVector2D GetLogicalSize() const { return Size; }
 	float GetDeviceScale() const { return Scale; }
 
+	/**
+	 * CSS px per unit of the widget that shows the view (1 by default): at 2 the page lays out in half the widget's
+	 * units and every CSS px spans twice the device px, as the page zoomed by 2 (a UI scale setting), text drawn at
+	 * the device's resolution. The widget sizes the view and maps the pointer with it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Weft")
+	void SetContentScale(float InContentScale);
+	UFUNCTION(BlueprintPure, Category = "Weft")
+	float GetContentScale() const { return ContentScale; }
+
+	/**
+	 * The page's localStorage (pages with the web platform): kept across the View's page loads, for the game to save
+	 * and restore. SetStorageItem sets an item (an empty Value with bRemove removes it); before the page loads, it
+	 * restores what was saved. GetStorage hands the items over when they changed since Revision (0: in any case) and
+	 * writes their revision; false when they did not change.
+	 */
+	bool SetStorageItem(const FString& Key, const FString& Value, bool bRemove = false);
+	bool ClearStorage();
+	bool GetStorage(uint64& Revision, TMap<FString, FString>& OutItems) const;
+
 	/** Runs the page up to now (its events, view models, tasks, animation frames and scene), then hands its messages to
 	 *  OnMessage and its diagnostics to the log. */
 	void Advance();
@@ -78,6 +114,7 @@ public:
 	bool IsOpen() const { return Runtime != nullptr; }
 
 	FOnWeftMessage OnMessage;
+	FOnWeftDiagnostic OnDiagnostic;
 
 protected:
 	virtual void BeginDestroy() override;
@@ -98,5 +135,6 @@ private:
 	double StartSeconds = 0;
 	FVector2D Size = FVector2D(1, 1);
 	float Scale = 1.f;
+	float ContentScale = 1.f;
 	TArray<FWeftAnchor> Anchors;
 };

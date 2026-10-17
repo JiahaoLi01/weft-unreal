@@ -42,6 +42,12 @@ $out = Join-Path $build $Config
 Copy-Item (Join-Path $out "weft.lib") (Join-Path $library "lib/Win64") -Force
 Copy-Item (Join-Path $out "weft.dll") $binaries -Force
 if (Test-Path (Join-Path $out "weft.pdb")) { Copy-Item (Join-Path $out "weft.pdb") $binaries -Force }
+# The effect compiler with weft's shell: a game compiles its UI shader effects (-weft-effect) with them
+# (cmake -DSOURCE=<effect.hlsl> -DOUTPUT=<dir>/<name> -P effects/compile_effect.cmake), without weft's source tree.
+$effects = Join-Path $library "effects"
+New-Item -ItemType Directory -Force $effects | Out-Null
+Copy-Item (Join-Path $WeftSource "cmake/compile_effect.cmake"), (Join-Path $WeftSource "cmake/check_effect.cmake"),
+    (Join-Path $WeftSource "src/render/shaders/scene.hlsl") $effects -Force
 $commit = (git -C $WeftSource rev-parse HEAD).Trim()
 $branch = (git -C $WeftSource rev-parse --abbrev-ref HEAD).Trim()
 Set-Content -Encoding utf8 (Join-Path $library "WEFT_VERSION") "$commit $branch"

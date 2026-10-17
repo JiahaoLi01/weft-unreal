@@ -180,10 +180,22 @@ bool FWeftD3D12Backend::Record(ID3D12GraphicsCommandList* List, ID3D12Resource* 
 			return true;
 		}
 	}
-	if (!bWarnedDraw)
+	// Why, as weft says (a frame its native pass cannot draw: what of the page it cannot), once each reason.
+	FString Why;
+	weft_renderer_last_failure(
+		Renderer,
+		[](void* User, const char* Text, size_t Size)
+		{
+			const FUTF8ToTCHAR Converted(Text, int32(Size));
+			*static_cast<FString*>(User) = FString(Converted.Length(), Converted.Get());
+		},
+		&Why);
+	const FString Reason = FString::Printf(TEXT("%d %s"), int32(Result), *Why);
+	if (!WarnedDraws.Contains(Reason) && WarnedDraws.Num() < 64)
 	{
-		UE_LOG(LogWeft, Warning, TEXT("Weft: a frame did not draw (%d)."), int32(Result));
-		bWarnedDraw = true;
+		WarnedDraws.Add(Reason);
+		UE_LOG(LogWeft, Warning, TEXT("Weft: a frame did not draw (%d)%s%s"), int32(Result), Why.IsEmpty() ? TEXT("") : TEXT(": "),
+			*Why);
 	}
 	return false;
 }
