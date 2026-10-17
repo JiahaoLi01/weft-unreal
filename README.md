@@ -16,7 +16,7 @@
 
 ## 编译 weft
 
-需要 CMake 3.25+、Visual Studio 2022；装了 Vulkan SDK 1.4.363.0 时连 Vulkan 后端一起编。weft 的 D3D12 后端目前在 weft 的 `unreal` 分支上。
+需要 CMake 3.25+、Visual Studio 2022；装了 Vulkan SDK 1.4.363.0 时连 Vulkan 后端一起编。weft 的 D3D12 后端在 weft 的 main 上（2026-10-17 由 `unreal` 分支合入）。
 
 ```powershell
 pwsh Plugins/Weft/Scripts/BuildWeft.ps1 -WeftSource F:/Projects/weft
