@@ -41,7 +41,7 @@ View->SetModel(TEXT("camera"), TEXT("{\"tier\":\"Mid\"}"));       // weft.engine
 View->SetAnchors(Anchors);   // FWeftAnchor: Key, Position（逻辑 px）, Scale, Depth, bHidden, bBehind
 ```
 
-- `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位除以 View 的内容缩放 `SetContentScale`，设备缩放即 Slate 的缩放乘它：UI 缩放设置用它，文字仍按设备分辨率画）、推进页面、把帧交给渲染线程。每一层的指针分流（`AddView` 的 `EWeftPointerRouting`）：`Element`（默认）是页面在那里有接受指针的元素就给页面；`Cursor` 是那个元素显示可交互光标（`auto`、`default`、`none` 以外）时才给页面——整屏铺着面板、游戏从空白处透出来的页面用它；滚轮在页面有元素处都交给页面，`Cursor` 下默认箭头处游戏也收到。其余交给下面的游戏视口。
+- `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位除以 View 的内容缩放 `SetContentScale`，设备缩放即 Slate 的缩放乘它：UI 缩放设置用它，文字仍按设备分辨率画）、推进页面、把帧交给渲染线程。每一层的指针分流（`AddView` 的 `EWeftPointerRouting`）：`Element`（默认）是页面在那里有接受指针的元素就给页面；`Cursor` 是那个元素显示可交互光标（`auto`、`default`、`none` 以外）时才给页面——整屏铺着面板、游戏从空白处透出来的页面用它；滚轮在页面有元素处都交给页面，`Cursor` 下默认箭头处游戏也收到。其余交给下面的游戏视口。指针的移动每帧交给页面一次，用的是最后的位置（同浏览器把 pointermove 对齐到动画帧）；按键、滚轮、离开之前先把攒着的移动交出去。原因是 Slate 会把系统攒下的每一下移动都交过来，一帧慢了攒得多；而每一下都要页面做命中判断、跑处理函数，越慢攒得越多。指针在不在页面上（`IsPointerOverPage`）按每帧第一下移动的位置算。
 - 页面文件夹的 `page.json` 可以写 `"forgivingCss": true`（Tailwind 这类构建工具生成的样式表：画不出的声明丢掉并打诊断，而不是拒绝页面）与 `"webPlatform": true`（console、localStorage、dataset、focus、KeyboardEvent、matchMedia）。
 - 字体与效果：`UWeftSubsystem::AddFonts(fonts.json)`（`faces` 的 `family`、`path`、`weight`、`italic`、`face`、`unicodeRange`，与 `fallback`；在第一个页面加载之前）、`AddEffects(effects.json)`（UI 着色器效果：字节码由 weft 的 `cmake/compile_effect.cmake` 编出，`BuildWeft.ps1` 把它连同外壳复制到 `Source/ThirdParty/WeftLibrary/effects/`）。
 - 页面的 localStorage：`UWeftView::SetStorageItem`（加载页面之前恢复）、`GetStorage(Revision, Items)`（修订号变了才交出，游戏据此保存）。

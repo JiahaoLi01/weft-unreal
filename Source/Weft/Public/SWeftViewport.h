@@ -31,6 +31,10 @@ enum class EWeftPointerRouting : uint8
  * pass where none has (to the game, under a game viewport). The pointer's moves reach every layer, and the game. A
  * layer that is not interactive (labels, say) never takes the pointer; a widget with no interactive layer is invisible to
  * it.
+ *
+ * The pages get the pointer's moves once a frame, where it was last (as browsers align them with animation frames), and
+ * before a button, the wheel or a leave: Slate hands over every move the platform queued, many in a slow frame, and each
+ * costs a page a hit test and its handlers, which made a slow frame slower the more the pointer moved.
  */
 class WEFT_API SWeftViewport : public SLeafWidget
 {
@@ -57,8 +61,9 @@ public:
 	 *  that covers a game viewport); the widget's last geometry. */
 	FVector2D PixelToLogical(FVector2D WindowPixel) const;
 
-	/** Whether the pointer was over an element of an interactive layer's page that takes it, at its last move over the
-	 *  widget (any layer's, or one view's): the game may ignore the pointer then, as it gets no clicks there. */
+	/** Whether the pointer was over an element of an interactive layer's page that takes it, at its first move of the
+	 *  frame or its last delivered one (any layer's, or one view's): the game may ignore the pointer then, as it gets no
+	 *  clicks there. */
 	bool IsPointerOverPage() const;
 	bool IsPointerOverView(const UWeftView* InView) const;
 
@@ -89,6 +94,13 @@ private:
 	/** The topmost interactive layer whose page takes the pointer at a point of the widget (its units), and its cursor;
 	 *  INDEX_NONE for none. bWheel: where the page has an element at all (the wheel reaches it whatever its routing). */
 	int32 LayerTakingPointer(FVector2D Local, FString* OutCursor = nullptr, bool bWheel = false) const;
+	/** LayerTakingPointer (not the wheel's), remembered for its point until a page may have changed: a page's pointer
+	 *  handlers, its frame or the layers. A hit test walks a page's scene. */
+	int32 RouteAt(FVector2D Local, FString* OutCursor = nullptr) const;
+	/** Marks the layer the pointer is over (INDEX_NONE: none). */
+	void SetPointerOver(int32 Over);
+	/** The pointer's pending move to every layer's page, if it moved since the pages last saw it. */
+	void FlushPointer();
 	static bool TakesPointer(const UWeftView* Page, FVector2D Local, FString* OutCursor = nullptr);
 	/** Whether a cursor of the page says something there takes clicks: not the default arrow. */
 	static bool InteractiveCursor(const FString& Cursor);
@@ -104,4 +116,20 @@ private:
 	TWeakObjectPtr<UWeftView> Captor;
 	FVector2D LastPosition = FVector2D::ZeroVector;
 	float LastScale = 1.f;
+
+	/** The pointer's last move (the widget's units) and its buttons, not yet delivered to the pages. */
+	bool bPointerPending = false;
+	FVector2D PendingLocal = FVector2D::ZeroVector;
+	uint32 PendingButtons = 0;
+	/** The frame (GFrameCounter) whose first move marked the layer the pointer is over. */
+	uint64 RoutedFrame = MAX_uint64;
+
+	struct FRoute
+	{
+		bool bValid = false;
+		FVector2D Local = FVector2D::ZeroVector;
+		int32 Layer = INDEX_NONE;
+		FString Cursor;
+	};
+	mutable FRoute Route;
 };

@@ -1,5 +1,6 @@
 #include "SWeftViewport.h"
 
+#include "CoreGlobals.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/IConsoleManager.h"
 #include "Render/WeftFramePacket.h"
@@ -50,6 +51,7 @@ void SWeftViewport::AddView(UWeftView* InView, int32 Order, bool bInteractive, E
 	// After the layers of its order or lower: the later of one order draws over the earlier.
 	const int32 At = Layers.IndexOfByPredicate([Order](const FLayer& Other) { return Other.Order > Order; });
 	Layers.Insert(MoveTemp(Layer), At == INDEX_NONE ? Layers.Num() : At);
+	Route.bValid = false;
 	UpdateVisibility();
 }
 
@@ -60,6 +62,7 @@ void SWeftViewport::RemoveView(const UWeftView* InView)
 	{
 		Captor.Reset();
 	}
+	Route.bValid = false;
 	UpdateVisibility();
 }
 
@@ -95,9 +98,18 @@ void SWeftViewport::Tick(const FGeometry& AllottedGeometry, const double InCurre
 			// CSS px are the widget's units divided by the page's content scale; device px Slate's.
 			const float Content = Page->GetContentScale();
 			Page->Resize(AllottedGeometry.GetLocalSize() / Content, AllottedGeometry.Scale * Content);
+		}
+	}
+	// The frame's pointer, where it was last, then the pages' frame.
+	FlushPointer();
+	for (const FLayer& Layer : Layers)
+	{
+		if (UWeftView* Page = Layer.View.Get())
+		{
 			Page->Advance();
 		}
 	}
+	Route.bValid = false;
 }
 
 int32 SWeftViewport::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
@@ -196,17 +208,59 @@ int32 SWeftViewport::LayerTakingPointer(FVector2D Local, FString* OutCursor, boo
 	return INDEX_NONE;
 }
 
-FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+int32 SWeftViewport::RouteAt(FVector2D Local, FString* OutCursor) const
 {
-	const FVector2D Local = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-	const int32 Over = LayerTakingPointer(Local);
+	if (!Route.bValid || Route.Local != Local)
+	{
+		Route.Layer = LayerTakingPointer(Local, &Route.Cursor);
+		Route.Local = Local;
+		Route.bValid = true;
+	}
+	if (OutCursor)
+	{
+		*OutCursor = Route.Cursor;
+	}
+	return Route.Layer;
+}
+
+void SWeftViewport::SetPointerOver(int32 Over)
+{
 	for (int32 I = 0; I < Layers.Num(); ++I)
 	{
 		Layers[I].bPointerOver = I == Over;
+	}
+}
+
+void SWeftViewport::FlushPointer()
+{
+	if (!bPointerPending)
+	{
+		return;
+	}
+	bPointerPending = false;
+	SetPointerOver(RouteAt(PendingLocal));
+	for (int32 I = 0; I < Layers.Num(); ++I)
+	{
 		if (UWeftView* Page = Layers[I].View.Get())
 		{
-			Page->Pointer(EWeftPointer::Move, ToPage(Page, Local), Buttons(MouseEvent));
+			Page->Pointer(EWeftPointer::Move, ToPage(Page, PendingLocal), PendingButtons);
 		}
+	}
+	// The pages' handlers may have changed what is under the pointer.
+	Route.bValid = false;
+}
+
+FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	// Only kept: the pages get it in the frame's Tick (or before a button, the wheel or a leave).
+	PendingLocal = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+	PendingButtons = Buttons(MouseEvent);
+	bPointerPending = true;
+	// Which layer the pointer is over, for the game this frame: at the frame's first move.
+	if (RoutedFrame != GFrameCounter)
+	{
+		RoutedFrame = GFrameCounter;
+		SetPointerOver(RouteAt(PendingLocal));
 	}
 	// The game sees the pointer move too, unless a page holds it.
 	return HasMouseCapture() ? FReply::Handled() : FReply::Unhandled();
@@ -214,8 +268,10 @@ FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEve
 
 FReply SWeftViewport::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
+	// The pages see the pointer where it is before the press (what it is over, then the button).
+	FlushPointer();
 	const FVector2D Local = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-	const int32 Taker = LayerTakingPointer(Local);
+	const int32 Taker = RouteAt(Local);
 	UWeftView* Page = Layers.IsValidIndex(Taker) ? Layers[Taker].View.Get() : nullptr;
 	if (!Page)
 	{
@@ -223,6 +279,7 @@ FReply SWeftViewport::OnMouseButtonDown(const FGeometry& MyGeometry, const FPoin
 	}
 	Captor = Page;
 	Page->Pointer(EWeftPointer::Down, ToPage(Page, Local), Buttons(MouseEvent));
+	Route.bValid = false;
 	return FReply::Handled().CaptureMouse(AsShared());
 }
 
@@ -232,10 +289,12 @@ FReply SWeftViewport::OnMouseButtonUp(const FGeometry& MyGeometry, const FPointe
 	{
 		return FReply::Unhandled();
 	}
+	FlushPointer();
 	if (UWeftView* Page = Captor.Get())
 	{
 		Page->Pointer(EWeftPointer::Up, ToPage(Page, MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())),
 			Buttons(MouseEvent));
+		Route.bValid = false;
 	}
 	if (Buttons(MouseEvent))
 	{
@@ -247,6 +306,7 @@ FReply SWeftViewport::OnMouseButtonUp(const FGeometry& MyGeometry, const FPointe
 
 FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
+	FlushPointer();
 	const FVector2D Local = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
 	FString Cursor;
 	const int32 Taker = LayerTakingPointer(Local, &Cursor, /*bWheel*/ true);
@@ -257,6 +317,7 @@ FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEv
 	}
 	// Slate's wheel is in notches, upward positive; the page's in px, downward positive (100 px a notch, as browsers).
 	Page->Pointer(EWeftPointer::Wheel, ToPage(Page, Local), Buttons(MouseEvent), FVector2D(0, -MouseEvent.GetWheelDelta() * 100.0));
+	Route.bValid = false;
 	// A page routed by its cursor shares the wheel with the game under the arrow.
 	return Layers[Taker].Routing == EWeftPointerRouting::Cursor && !InteractiveCursor(Cursor) ? FReply::Unhandled()
 																							   : FReply::Handled();
@@ -264,6 +325,7 @@ FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEv
 
 void SWeftViewport::OnMouseLeave(const FPointerEvent& MouseEvent)
 {
+	bPointerPending = false;
 	for (FLayer& Layer : Layers)
 	{
 		Layer.bPointerOver = false;
@@ -272,12 +334,13 @@ void SWeftViewport::OnMouseLeave(const FPointerEvent& MouseEvent)
 			Page->Pointer(EWeftPointer::Leave, FVector2D::ZeroVector, 0);
 		}
 	}
+	Route.bValid = false;
 }
 
 FCursorReply SWeftViewport::OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const
 {
 	FString Cursor;
-	if (LayerTakingPointer(MyGeometry.AbsoluteToLocal(CursorEvent.GetScreenSpacePosition()), &Cursor) == INDEX_NONE)
+	if (RouteAt(MyGeometry.AbsoluteToLocal(CursorEvent.GetScreenSpacePosition()), &Cursor) == INDEX_NONE)
 	{
 		return FCursorReply::Unhandled();
 	}
