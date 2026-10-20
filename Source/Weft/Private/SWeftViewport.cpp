@@ -14,6 +14,10 @@ namespace
 {
 	TAutoConsoleVariable<int32> CVarWeftDraw(TEXT("weft.Draw"), 1,
 		TEXT("Draw weft views (0: their pages still run, nothing is drawn)."), ECVF_Default);
+
+	// How often a page takes a move of a pointer that stands still (Slate sends one as widgets move under it): each
+	// is a hit test of the page's latest frame.
+	constexpr double StillMoveSeconds = 0.1;
 }
 
 void SWeftViewport::Construct(const FArguments& InArgs)
@@ -199,13 +203,22 @@ int32 SWeftViewport::LayerTakingPointer(FVector2D Local, FString* OutCursor, boo
 FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
 	const FVector2D Local = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+	const uint32 Pressed = Buttons(MouseEvent);
+	const double Now = FPlatformTime::Seconds();
+	if (Local == LastMove && Pressed == LastMoveButtons && Now - LastMoveTime < StillMoveSeconds)
+	{
+		return HasMouseCapture() ? FReply::Handled() : FReply::Unhandled();
+	}
+	LastMove = Local;
+	LastMoveButtons = Pressed;
+	LastMoveTime = Now;
 	const int32 Over = LayerTakingPointer(Local);
 	for (int32 I = 0; I < Layers.Num(); ++I)
 	{
 		Layers[I].bPointerOver = I == Over;
 		if (UWeftView* Page = Layers[I].View.Get())
 		{
-			Page->Pointer(EWeftPointer::Move, ToPage(Page, Local), Buttons(MouseEvent));
+			Page->Pointer(EWeftPointer::Move, ToPage(Page, Local), Pressed);
 		}
 	}
 	// The game sees the pointer move too, unless a page holds it.
@@ -264,6 +277,7 @@ FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEv
 
 void SWeftViewport::OnMouseLeave(const FPointerEvent& MouseEvent)
 {
+	LastMove = FVector2D(-1, -1);
 	for (FLayer& Layer : Layers)
 	{
 		Layer.bPointerOver = false;

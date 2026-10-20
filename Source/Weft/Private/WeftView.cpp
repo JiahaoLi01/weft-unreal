@@ -2,6 +2,7 @@
 
 #include "HAL/PlatformTime.h"
 #include "Misc/FileHelper.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Render/WeftFramePacket.h"
 #include "WeftModule.h"
 #include "WeftValue.h"
@@ -280,6 +281,7 @@ void UWeftView::Advance()
 	{
 		return;
 	}
+	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Advance);
 	const weft_view_handle View = Handle(RuntimeId, Slot, Generation);
 	Succeeded(weft_view_advance(Runtime, View, FPlatformTime::Seconds() - StartSeconds), TEXT("advance a view"));
 	// The page's messages: handed on after the drain, so that handlers may call into the View.
@@ -345,6 +347,7 @@ bool UWeftView::Pointer(EWeftPointer Kind, FVector2D Position, uint32 Buttons, F
 	{
 		return false;
 	}
+	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Pointer);
 	weft_pointer_event Event{sizeof(Event)};
 	Event.kind = uint32(Kind);
 	Event.x = float(Position.X);
@@ -368,6 +371,7 @@ bool UWeftView::HitTest(FVector2D Position, FString& OutCursor) const
 	{
 		return false;
 	}
+	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_HitTest);
 	weft_hit Hit{sizeof(Hit)};
 	if (weft_view_hit_test(Runtime, Handle(RuntimeId, Slot, Generation), float(Position.X), float(Position.Y), &Hit) != WEFT_OK)
 	{
@@ -387,6 +391,7 @@ TSharedPtr<FWeftFramePacket, ESPMode::ThreadSafe> UWeftView::MakePacket() const
 	{
 		return nullptr;
 	}
+	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_MakePacket);
 	const weft_view_handle View = Handle(RuntimeId, Slot, Generation);
 	weft_view_frame* Frame = nullptr;
 	if (weft_view_acquire_frame(Runtime, View, &Frame) != WEFT_OK)

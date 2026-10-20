@@ -104,4 +104,9 @@ private:
 	TWeakObjectPtr<UWeftView> Captor;
 	FVector2D LastPosition = FVector2D::ZeroVector;
 	float LastScale = 1.f;
+	/** The last move the pages took: Slate repeats a move where the pointer stands while widgets move under it, which
+	 *  the pages take at most every StillMoveSeconds (their hover follows what scrolls under a still pointer). */
+	FVector2D LastMove = FVector2D(-1, -1);
+	uint32 LastMoveButtons = 0;
+	double LastMoveTime = 0;
 };

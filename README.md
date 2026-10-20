@@ -2,7 +2,7 @@
 
 把 [weft](https://github.com/JiahaoLi01/weft)（HTML、CSS、DOM 与 JavaScript 的游戏 UI 运行时）接进 Unreal Engine 5 的插件。页面在游戏线程上运行，帧由 weft 对应当前 RHI 的后端画进 Slate 的输出：用的是引擎自己的 GPU 设备与命令列表，不经 CPU 拷贝，也不另开设备。
 
-当前状态（2026-10-15）：实验版。Win64、UE 5.8、D3D12 RHI 已在 CaseKargaroo 里跑通（城市标签）。
+当前状态（2026-10-21）：实验版。Win64、UE 5.8、D3D12 RHI 已在 CaseKargaroo 里跑通（城市标签），也跑 weft-page 的宣传页（约 4,000 个元素的长页面、四张场景捕获每帧重画的纹理、六个锚点；3840 × 2040 下帧时的中位数是 240 fps 上限的 4.17 ms）。
 
 ## 目录
 
@@ -41,14 +41,14 @@ View->SetModel(TEXT("camera"), TEXT("{\"tier\":\"Mid\"}"));       // weft.engine
 View->SetAnchors(Anchors);   // FWeftAnchor: Key, Position（逻辑 px）, Scale, Depth, bHidden, bBehind
 ```
 
-- `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位除以 View 的内容缩放 `SetContentScale`，设备缩放即 Slate 的缩放乘它：UI 缩放设置用它，文字仍按设备分辨率画）、推进页面、把帧交给渲染线程。每一层的指针分流（`AddView` 的 `EWeftPointerRouting`）：`Element`（默认）是页面在那里有接受指针的元素就给页面；`Cursor` 是那个元素显示可交互光标（`auto`、`default`、`none` 以外）时才给页面——整屏铺着面板、游戏从空白处透出来的页面用它；滚轮在页面有元素处都交给页面，`Cursor` 下默认箭头处游戏也收到。其余交给下面的游戏视口。
+- `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位除以 View 的内容缩放 `SetContentScale`，设备缩放即 Slate 的缩放乘它：UI 缩放设置用它，文字仍按设备分辨率画）、推进页面、把帧交给渲染线程。每一层的指针分流（`AddView` 的 `EWeftPointerRouting`）：`Element`（默认）是页面在那里有接受指针的元素就给页面；`Cursor` 是那个元素显示可交互光标（`auto`、`default`、`none` 以外）时才给页面——整屏铺着面板、游戏从空白处透出来的页面用它；滚轮在页面有元素处都交给页面，`Cursor` 下默认箭头处游戏也收到。其余交给下面的游戏视口。指针停着、按键不变时 Slate 仍会重复发移动（控件在它底下移动时），页面最多每 0.1 秒收一次：每一次都是一次命中测试，悬停状态仍跟得上从静止指针底下滚过的元素。
 - 页面文件夹的 `page.json` 可以写 `"forgivingCss": true`（Tailwind 这类构建工具生成的样式表：画不出的声明丢掉并打诊断，而不是拒绝页面）与 `"webPlatform": true`（console、localStorage、dataset、focus、KeyboardEvent、matchMedia）。
 - 字体与效果：`UWeftSubsystem::AddFonts(fonts.json)`（`faces` 的 `family`、`path`、`weight`、`italic`、`face`、`unicodeRange`，与 `fallback`；在第一个页面加载之前）、`AddEffects(effects.json)`（UI 着色器效果：字节码由 weft 的 `cmake/compile_effect.cmake` 编出，`BuildWeft.ps1` 把它连同外壳复制到 `Source/ThirdParty/WeftLibrary/effects/`）。
 - 页面的 localStorage：`UWeftView::SetStorageItem`（加载页面之前恢复）、`GetStorage(Revision, Items)`（修订号变了才交出，游戏据此保存）。
 - 锚点随这一帧的帧数据一起交给渲染线程，在录制前写入 View：锚定的元素与这一帧的 3D 画面同步，不会晚一帧。
 - 页面的诊断打在 `LogWeft`：console 的 log 为 Log、warn 与样式丢弃为 Warning、脚本异常与 console.error 为 Error；`UWeftView::OnDiagnostic` 也收到。帧画不出时渲染器把 weft 给的原因（`weft_renderer_last_failure`）各记一次。
 - 页面文件夹里的图片：CSS 写 `background-image: url(../Textures/x.png)`（PNG），像背景图那样铺排。相对路径从页面的基准（`FWeftPage::Base`，`FromDirectory` 设为样式表的路径）算起，View 用 `FFileHelper` 读文件（打包后从 pak 读，所以页面文件夹要随包，如 `DirectoriesToAlwaysStageAsUFS`）。读不到或不是 PNG 时打一条页面诊断，那个背景不画图。
-- 引擎的纹理：`UWeftSubsystem::SetTexture(Name, Texture)`，页面写 `background-image: -weft-texture(Name)`。
+- 引擎的纹理：`UWeftSubsystem::SetTexture(Name, Texture)`，页面写 `background-image: -weft-texture(Name)`。渲染目标（`UTextureRenderTarget2D` 这类引擎能画进去的纹理，比如场景捕获每帧重画的那张）按 weft 的 live 纹理导入：引擎可以在两帧之间重画它，页面画的总是这一帧的内容；别的纹理导入后内容不能再变（要变就换个名字绑一张新的）。
 
 ## 渲染
 
@@ -59,6 +59,7 @@ View->SetAnchors(Anchors);   // FWeftAnchor: Key, Position（逻辑 px）, Scale
 - weft 的渲染器只认它的创建线程，而 UE 5 的 RHI 在任务线程上执行命令列表的 lambda：插件给渲染器一个自己的线程（`FWeftOwnerThread`），lambda 把工作交给它并等它做完，录制仍落在命令列表里 lambda 的位置。
 - Slate：控件画一个自定义元素，在 Slate 的渲染图里加 pass。控件在输出的左上角时 weft 直接画进输出；不在时（比如编辑器里的 PIE）先把那块拷进一张同样大小的纹理，weft 画在上面（`backdrop-filter` 也读得到游戏画面），再拷回去。
 - 目标格式：BGRA8、RGBA8，以及 10 位的 `PF_A2B10G10R10`（UE 5 默认的后缓冲）。别的格式（HDR 输出）记一次警告、不画。
+- Unreal Insights（`-trace=cpu`）里，weft 的工作记在游戏线程的 `Weft_Advance`（页面的脚本、样式、布局与场景）、`Weft_Pointer`、`Weft_HitTest`、`Weft_MakePacket`，与 `WeftRender` 线程的 `Weft_Record`（录制）下。
 
 ## 限制
 
