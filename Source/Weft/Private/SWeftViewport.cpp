@@ -2,6 +2,7 @@
 
 #include "CoreGlobals.h"
 #include "Framework/Application/SlateApplication.h"
+#include "GenericPlatform/ITextInputMethodSystem.h"
 #include "HAL/IConsoleManager.h"
 #include "Render/WeftFramePacket.h"
 #include "Render/WeftSlateDrawer.h"
@@ -9,6 +10,7 @@
 #include "Rendering/DrawElements.h"
 #include "TextureResource.h"
 #include "WeftSubsystem.h"
+#include "WeftTextInputContext.h"
 #include "WeftView.h"
 
 namespace
@@ -19,6 +21,23 @@ namespace
 	// How often a page takes a move of a pointer that stands still (Slate sends one as widgets move under it): each
 	// is a hit test of the page's latest frame.
 	constexpr double StillMoveSeconds = 0.1;
+
+	// The virtual key Windows gives a key the input method took (VK_PROCESSKEY).
+	constexpr uint32 ProcessKey = 0xE5;
+
+	// The modifier keys of a pointer event (Shift extends a text field's selection to a press).
+	EWeftModifier PointerModifiers(const FPointerEvent& MouseEvent)
+	{
+		return (MouseEvent.IsShiftDown() ? EWeftModifier::Shift : EWeftModifier::None) |
+			(MouseEvent.IsControlDown() ? EWeftModifier::Control : EWeftModifier::None) |
+			(MouseEvent.IsAltDown() ? EWeftModifier::Alt : EWeftModifier::None) |
+			(MouseEvent.IsCommandDown() ? EWeftModifier::Meta : EWeftModifier::None);
+	}
+
+	ITextInputMethodSystem* InputMethodSystem()
+	{
+		return FSlateApplication::IsInitialized() ? FSlateApplication::Get().GetTextInputMethodSystem() : nullptr;
+	}
 }
 
 void SWeftViewport::Construct(const FArguments& InArgs)
@@ -31,6 +50,22 @@ void SWeftViewport::Construct(const FArguments& InArgs)
 		AddView(InArgs._View, 0, InArgs._Interactive, InArgs._Routing);
 	}
 	UpdateVisibility();
+}
+
+SWeftViewport::~SWeftViewport()
+{
+	if (TextInput && TextInputNotifier)
+	{
+		if (ITextInputMethodSystem* System = InputMethodSystem())
+		{
+			const TSharedRef<ITextInputMethodContext> Context = TextInput.ToSharedRef();
+			if (bTextInputActive && System->IsActiveContext(Context))
+			{
+				System->DeactivateContext(Context);
+			}
+			System->UnregisterContext(Context);
+		}
+	}
 }
 
 void SWeftViewport::AddView(UWeftView* InView, int32 Order, bool bInteractive, EWeftPointerRouting Routing)
@@ -129,17 +164,26 @@ bool SWeftViewport::SupportsKeyboardFocus() const
 FReply SWeftViewport::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
 	UWeftView* Page = GetKeyboardView();
-	return Page && Page->Key(InKeyEvent, true) != EWeftInput::None ? FReply::Handled() : FReply::Unhandled();
+	if (!Page)
+	{
+		return FReply::Unhandled();
+	}
+	const bool bUsed = Page->Key(InKeyEvent, true) != EWeftInput::None;
+	// What the input method did with its key follows the key (TSF's edit comes before the key reaches the widget).
+	FlushTextInput(MyGeometry);
+	return bUsed || InKeyEvent.GetKeyCode() == ProcessKey ? FReply::Handled() : FReply::Unhandled();
 }
 
 FReply SWeftViewport::OnKeyUp(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
+	FlushTextInput(MyGeometry);
 	UWeftView* Page = GetKeyboardView();
 	return Page && Page->Key(InKeyEvent, false) != EWeftInput::None ? FReply::Handled() : FReply::Unhandled();
 }
 
 FReply SWeftViewport::OnKeyChar(const FGeometry& MyGeometry, const FCharacterEvent& InCharacterEvent)
 {
+	FlushTextInput(MyGeometry);
 	UWeftView* Page = GetKeyboardView();
 	if (!Page)
 	{
@@ -174,6 +218,88 @@ void SWeftViewport::OnFocusLost(const FFocusEvent& InFocusEvent)
 	bKeyboardFocus = false;
 	HighSurrogate = 0;
 	ApplyFocus();
+	// Before the widget that takes the focus activates a context of its own.
+	DeactivateTextInput();
+}
+
+TSharedRef<ITextInputMethodContext> SWeftViewport::GetTextInputMethodContext()
+{
+	if (!TextInput)
+	{
+		TextInput = MakeShared<FWeftTextInputContext>(SharedThis(this));
+	}
+	return TextInput.ToSharedRef();
+}
+
+void SWeftViewport::FlushTextInput(const FGeometry& Geometry)
+{
+	if (TextInput)
+	{
+		TextInput->SetTarget(GetKeyboardView(), Geometry);
+		TextInput->Flush(TextInputNotifier.Get());
+	}
+}
+
+void SWeftViewport::DeactivateTextInput()
+{
+	if (!TextInput || !bTextInputActive)
+	{
+		return;
+	}
+	bTextInputActive = false;
+	TextInput->Discard();
+	ITextInputMethodSystem* System = InputMethodSystem();
+	const TSharedRef<ITextInputMethodContext> Context = TextInput.ToSharedRef();
+	// Another widget's context may be the active one by now.
+	if (System && System->IsActiveContext(Context))
+	{
+		System->DeactivateContext(Context);
+	}
+}
+
+void SWeftViewport::UpdateTextInput(const FGeometry& Geometry)
+{
+	UWeftView* Page = GetKeyboardView();
+	const bool bFocused = bKeyboardFocus && (!FSlateApplication::IsInitialized() || FSlateApplication::Get().IsActive());
+	if (!TextInput && !(bFocused && Page))
+	{
+		return;
+	}
+	const TSharedRef<ITextInputMethodContext> Context = GetTextInputMethodContext();
+	FlushTextInput(Geometry);
+	const FWeftTextInput Input = bFocused && Page ? Page->GetTextInput() : FWeftTextInput();
+	// The page ended the composition (a script set the value, or the field lost the focus): the input method's ends too,
+	// its text dropped (turning the input method off and on ends it).
+	const bool bEnded = TextInput->HasComposition() && !Input.bComposing;
+	if (bEnded)
+	{
+		TextInput->Discard();
+	}
+	if (bEnded || !Input.bActive || Input.bPassword)
+	{
+		DeactivateTextInput();
+	}
+	ITextInputMethodSystem* System = InputMethodSystem();
+	if (!System || !Input.bActive || Input.bPassword || bTextInputActive || !TextInput->GetWindow())
+	{
+		// The candidate window follows the caret.
+		if (bTextInputActive && TextInputNotifier &&
+			(Input.Caret.Min != TextInputCaret.Min || Input.Caret.Max != TextInputCaret.Max))
+		{
+			TextInputCaret = Input.Caret;
+			TextInputNotifier->NotifyLayoutChanged(ITextInputMethodChangeNotifier::ELayoutChangeType::Changed);
+		}
+		return;
+	}
+	if (!TextInputNotifier)
+	{
+		TextInputNotifier = System->RegisterContext(Context);
+	}
+	// A fresh document: a composition the input method never ended is gone with its last activation.
+	TextInput->Reset();
+	System->ActivateContext(Context);
+	bTextInputActive = true;
+	TextInputCaret = Input.Caret;
 }
 
 void SWeftViewport::UpdateVisibility()
@@ -221,8 +347,9 @@ void SWeftViewport::Tick(const FGeometry& AllottedGeometry, const double InCurre
 			Page->Resize(AllottedGeometry.GetLocalSize() / Content, AllottedGeometry.Scale * Content);
 		}
 	}
-	// The frame's pointer, where it was last, then the pages' frame.
+	// The frame's pointer, where it was last, and the input method's text, then the pages' frame.
 	FlushPointer();
+	UpdateTextInput(AllottedGeometry);
 	for (const FLayer& Layer : Layers)
 	{
 		if (UWeftView* Page = Layer.View.Get())
@@ -364,7 +491,8 @@ void SWeftViewport::FlushPointer()
 	{
 		if (UWeftView* Page = Layers[I].View.Get())
 		{
-			Page->Pointer(EWeftPointer::Move, ToPage(Page, PendingLocal), PendingButtons);
+			Page->Pointer(EWeftPointer::Move, ToPage(Page, PendingLocal), PendingButtons, FVector2D::ZeroVector,
+				EWeftModifier(PendingModifiers));
 		}
 	}
 	LastMove = PendingLocal;
@@ -386,6 +514,7 @@ FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEve
 		// Only kept: the pages get it in the frame's Tick (or before a button, the wheel or a leave).
 		PendingLocal = Local;
 		PendingButtons = Pressed;
+		PendingModifiers = uint32(PointerModifiers(MouseEvent));
 		bPointerPending = true;
 		// Which layer the pointer is over, for the game this frame: at the frame's first move.
 		if (RoutedFrame != GFrameCounter)
@@ -414,7 +543,7 @@ FReply SWeftViewport::OnMouseButtonDown(const FGeometry& MyGeometry, const FPoin
 	// browser window takes the focus before the press that gave it.
 	KeyboardView = Page;
 	ApplyFocus(/*bPressing*/ true);
-	Page->Pointer(EWeftPointer::Down, ToPage(Page, Local), Buttons(MouseEvent));
+	Page->Pointer(EWeftPointer::Down, ToPage(Page, Local), Buttons(MouseEvent), FVector2D::ZeroVector, PointerModifiers(MouseEvent));
 	Route.bValid = false;
 	return FReply::Handled().CaptureMouse(AsShared()).SetUserFocus(AsShared(), EFocusCause::Mouse);
 }
@@ -429,7 +558,7 @@ FReply SWeftViewport::OnMouseButtonUp(const FGeometry& MyGeometry, const FPointe
 	if (UWeftView* Page = Captor.Get())
 	{
 		Page->Pointer(EWeftPointer::Up, ToPage(Page, MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition())),
-			Buttons(MouseEvent));
+			Buttons(MouseEvent), FVector2D::ZeroVector, PointerModifiers(MouseEvent));
 		Route.bValid = false;
 	}
 	if (Buttons(MouseEvent))
@@ -452,7 +581,8 @@ FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEv
 		return FReply::Unhandled();
 	}
 	// Slate's wheel is in notches, upward positive; the page's in px, downward positive (100 px a notch, as browsers).
-	Page->Pointer(EWeftPointer::Wheel, ToPage(Page, Local), Buttons(MouseEvent), FVector2D(0, -MouseEvent.GetWheelDelta() * 100.0));
+	Page->Pointer(EWeftPointer::Wheel, ToPage(Page, Local), Buttons(MouseEvent), FVector2D(0, -MouseEvent.GetWheelDelta() * 100.0),
+		PointerModifiers(MouseEvent));
 	Route.bValid = false;
 	// A page routed by its cursor shares the wheel with the game under the arrow.
 	return Layers[Taker].Routing == EWeftPointerRouting::Cursor && !InteractiveCursor(Cursor) ? FReply::Unhandled()

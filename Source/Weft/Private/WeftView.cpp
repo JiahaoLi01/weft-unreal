@@ -26,6 +26,9 @@ namespace
 		return FString(Converted.Length(), Converted.Get());
 	}
 
+	// The virtual key Windows gives a key the input method took (VK_PROCESSKEY).
+	constexpr uint32 ProcessKey = 0xE5;
+
 	bool Succeeded(weft_result Result, const TCHAR* What)
 	{
 		if (Result != WEFT_OK)
@@ -392,7 +395,7 @@ void UWeftView::Advance()
 #endif
 }
 
-bool UWeftView::Pointer(EWeftPointer Kind, FVector2D Position, uint32 Buttons, FVector2D Wheel)
+bool UWeftView::Pointer(EWeftPointer Kind, FVector2D Position, uint32 Buttons, FVector2D Wheel, EWeftModifier Modifiers)
 {
 #if WITH_WEFT
 	if (!Runtime)
@@ -405,6 +408,7 @@ bool UWeftView::Pointer(EWeftPointer Kind, FVector2D Position, uint32 Buttons, F
 	Event.x = float(Position.X);
 	Event.y = float(Position.Y);
 	Event.buttons = Buttons;
+	Event.modifiers = uint32(Modifiers) & (WEFT_MODIFIER_SHIFT | WEFT_MODIFIER_CONTROL | WEFT_MODIFIER_ALT | WEFT_MODIFIER_META);
 	Event.wheel_x = float(Wheel.X);
 	Event.wheel_y = float(Wheel.Y);
 	uint32 Prevented = 0;
@@ -436,10 +440,11 @@ bool UWeftView::HitTest(FVector2D Position, FString& OutCursor) const
 #endif
 }
 
-EWeftInput UWeftView::Key(bool bDown, const FString& Code, const FString& Value, EWeftModifier Modifiers, bool bRepeat)
+EWeftInput UWeftView::Key(bool bDown, const FString& Code, const FString& Value, EWeftModifier Modifiers, bool bRepeat,
+	bool bIme)
 {
 #if WITH_WEFT
-	if (!Runtime || Code.IsEmpty())
+	if (!Runtime || (Code.IsEmpty() && !bIme))
 	{
 		return EWeftInput::None;
 	}
@@ -449,7 +454,7 @@ EWeftInput UWeftView::Key(bool bDown, const FString& Code, const FString& Value,
 	const char* KeyValue = !Value.IsEmpty() ? ValueUtf8.Get()
 		: weft_keyboard_key(CodeUtf8.Get(), size_t(CodeUtf8.Length()), uint32(Modifiers), Typed) == WEFT_OK ? Typed
 		: "Unidentified";
-	return KeyUtf8(bDown, CodeUtf8.Get(), KeyValue, uint32(Modifiers), bRepeat);
+	return KeyUtf8(bDown, CodeUtf8.Get(), KeyValue, uint32(Modifiers), bRepeat, bIme);
 #else
 	return EWeftInput::None;
 #endif
@@ -458,6 +463,12 @@ EWeftInput UWeftView::Key(bool bDown, const FString& Code, const FString& Value,
 EWeftInput UWeftView::Key(const FKeyEvent& Event, bool bDown)
 {
 #if WITH_WEFT
+	if (Runtime && Event.GetKeyCode() == ProcessKey)
+	{
+		// The input method took the key: Windows names no physical key for it (Chrome's code comes from the scan code,
+		// which Slate does not give). Its keyup, if one comes as VK_PROCESSKEY too, is dropped.
+		return bDown ? KeyUtf8(true, "", "Process", ModifiersOf(Event, "", true), Event.IsRepeat(), true) : EWeftInput::None;
+	}
 	char Code[32];
 	if (!Runtime || weft_keyboard_code(Event.GetKeyCode(), Code) != WEFT_OK)
 	{
@@ -473,7 +484,7 @@ EWeftInput UWeftView::Key(const FKeyEvent& Event, bool bDown)
 #endif
 }
 
-EWeftInput UWeftView::KeyUtf8(bool bDown, const char* Code, const char* Value, uint32 Modifiers, bool bRepeat)
+EWeftInput UWeftView::KeyUtf8(bool bDown, const char* Code, const char* Value, uint32 Modifiers, bool bRepeat, bool bIme)
 {
 #if WITH_WEFT
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Key);
@@ -484,7 +495,7 @@ EWeftInput UWeftView::KeyUtf8(bool bDown, const char* Code, const char* Value, u
 	Event.code = Code;
 	Event.code_size = size_t(FCStringAnsi::Strlen(Code));
 	Event.modifiers = Modifiers;
-	Event.flags = bRepeat ? WEFT_KEY_REPEAT : 0u;
+	Event.flags = (bRepeat ? WEFT_KEY_REPEAT : 0u) | (bIme ? WEFT_KEY_IME : 0u);
 	uint32 Handled = 0;
 	if (weft_view_key(Runtime, Handle(RuntimeId, Slot, Generation), &Event, &Handled) != WEFT_OK)
 	{
@@ -523,6 +534,63 @@ void UWeftView::SetFocus(bool bFocused)
 	{
 		Succeeded(weft_view_set_focus(Runtime, Handle(RuntimeId, Slot, Generation), bFocused ? 1u : 0u), TEXT("set the focus"));
 	}
+#endif
+}
+
+FWeftTextInput UWeftView::GetTextInput() const
+{
+	FWeftTextInput Out;
+#if WITH_WEFT
+	weft_text_input Input{sizeof(Input)};
+	if (!Runtime || weft_view_text_input(Runtime, Handle(RuntimeId, Slot, Generation), &Input) != WEFT_OK)
+	{
+		return Out;
+	}
+	Out.bActive = Input.active != 0;
+	Out.bComposing = Input.composing != 0;
+	Out.bPassword = Input.password != 0;
+	Out.Caret = FBox2D(FVector2D(Input.caret_x, Input.caret_y),
+		FVector2D(Input.caret_x + Input.caret_width, Input.caret_y + Input.caret_height));
+	Out.Field = FBox2D(FVector2D(Input.field_x, Input.field_y),
+		FVector2D(Input.field_x + Input.field_width, Input.field_y + Input.field_height));
+#endif
+	return Out;
+}
+
+bool UWeftView::Compose(const FString& Text, int32 Cursor)
+{
+#if WITH_WEFT
+	if (!Runtime)
+	{
+		return false;
+	}
+	const FTCHARToUTF8 Utf8(*Text);
+	// The caret as a UTF-8 offset in the text.
+	const uint32 At = Cursor < 0 || Cursor >= Text.Len() ? uint32(Utf8.Length())
+		: uint32(FTCHARToUTF8(*Text.Left(Cursor)).Length());
+	uint32 Taken = 0;
+	return weft_view_composition(Runtime, Handle(RuntimeId, Slot, Generation), Utf8.Get(), size_t(Utf8.Length()), At, At,
+			   &Taken) == WEFT_OK &&
+		Taken != 0;
+#else
+	return false;
+#endif
+}
+
+bool UWeftView::CommitText(const FString& Text)
+{
+#if WITH_WEFT
+	if (!Runtime || Text.IsEmpty())
+	{
+		return false;
+	}
+	const FTCHARToUTF8 Utf8(*Text);
+	uint32 Taken = 0;
+	return weft_view_commit_text(Runtime, Handle(RuntimeId, Slot, Generation), Utf8.Get(), size_t(Utf8.Length()), &Taken) ==
+			   WEFT_OK &&
+		Taken != 0;
+#else
+	return false;
 #endif
 }
 

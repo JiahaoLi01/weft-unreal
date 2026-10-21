@@ -63,8 +63,16 @@ Viewport->FocusView(View);
 
 - 焦点：`SWeftViewport` 的键盘给它的一层，像浏览器窗口的键盘给它的页面：鼠标最近一次按下的那层，或 `FocusView` 给的那层，都没有时是最上面的可交互层。按在一层的页面上时控件拿到 Slate 的键盘焦点（`SetUserFocus`）；控件有 Slate 的键盘焦点、应用在前台时，那一层的页面有焦点（window 的 focus 与焦点元素的 focus，`:focus`、`:focus-visible`、`document.hasFocus()` 只在这时成立），其他层的页面没有。按在游戏上（没有页面接的地方）时游戏视口拿走焦点，页面收到 blur。`FocusView` 可以在 `BeginPlay` 里调：打包的游戏在窗口第一次显示游戏视口时（第一个关卡的 `BeginPlay` 之后）把焦点给游戏视口，控件在它的第一帧把焦点拿回来。控件不画 Slate 的焦点框，焦点由页面自己画（`:focus-visible`）。
 - 按键：`OnKeyDown`、`OnKeyUp` 交给那层的页面（`UWeftView::Key`）：code 是系统键盘布局把 Slate 给的 Windows 虚拟键放在的物理键（`weft_keyboard_code`；Slate 不给扫描码），key 是布局用它打出的字符，修饰键取事件的，加上 Slate 在 Windows 上不报的 Windows 键与 Num Lock；系统的自动重复照 Slate 给的 `IsRepeat`。`OnKeyChar` 的字符是页面的 keypress（`UWeftView::Text`；BMP 以外的字符两个代理项合成一个）。
-- 页面用没用：页面阻止了的键（`preventDefault`）和 weft 执行了默认动作的键（移焦点、滚动、点击）是 Handled，其余 Unhandled，照 Slate 的路由往上交给游戏视口与游戏的输入，同 Chrome 把页面没用的键还给浏览器。
-- 游戏自己给键：`UWeftView::Key(bDown, Code, Value, Modifiers, bRepeat)`、`Text`、`SetFocus`，给不在 `SWeftViewport` 里的 View，或游戏自己判断的键。
+- 页面用没用：页面阻止了的键（`preventDefault`）和 weft 执行了默认动作的键（移焦点、滚动、点击、编辑文本框）是 Handled，其余 Unhandled，照 Slate 的路由往上交给游戏视口与游戏的输入，同 Chrome 把页面没用的键还给浏览器。可编辑文本框里打字的键按下时就是页面的（玩家在聊天框里打字时角色不动）。
+- 游戏自己给键：`UWeftView::Key(bDown, Code, Value, Modifiers, bRepeat, bIme)`、`Text`、`SetFocus`，给不在 `SWeftViewport` 里的 View，或游戏自己判断的键。
+
+## 文本框与输入法
+
+- 页面的 `<input>`（文字类型）与 `<textarea>` 照 Chrome 编辑（weft 做：打字、选择、鼠标、事件）。鼠标事件带修饰键，Shift+点击扩展选区。
+- 输入法：`SWeftViewport` 有一个 `ITextInputMethodContext`（`GetTextInputMethodContext`），在键盘那层的页面里可编辑的文本框有焦点（不是密码框，同 Chrome）、控件有 Slate 的键盘焦点时，它是 Slate 输入法系统（Windows 上 IMM 或 TSF）的活动上下文，输入法开着；否则关着（UE 默认关着输入法，只在有活动上下文时打开）。候选窗在文本框光标下面（`GetTextBounds` 给光标在桌面上的矩形，光标移动时告诉输入法布局变了）。
+- weft 自己保存文本框的值与选区，所以输入法编辑的文档只有它正在组合的串（以及到下一次交给页面之前它上屏的文字）：组合串的变化在输入法这次编辑完之后交给页面（按键之后、下一个键之前、每帧），作为页面的组合（compositionstart、compositionupdate、input），组合结束时上屏（compositionend），没有组合直接插入的文字作为输入法上屏的文字；没有组合时文档清空并告诉输入法。页面自己结束组合时（脚本改值、文本框失焦），输入法的这次组合作废（关掉再打开输入法）。
+- 输入法吃掉的键 Windows 给的是 `VK_PROCESSKEY`：页面收到 key 为 "Process"、keyCode 229 的 keydown（没有 code：Slate 不给扫描码，Chrome 的 code 是物理键的），是页面的（Handled）；它的 keyup 有真正的键时照常给页面（`isComposing`）。
+- `UWeftView::GetTextInput`、`Compose`、`CommitText`：游戏自己读输入法时用（`weft_view_text_input`、`weft_view_composition`、`weft_view_commit_text`）。
 
 ## 渲染
 
@@ -79,7 +87,7 @@ Viewport->FocusView(View);
 
 ## 测试
 
-自动化测试（`Source/Weft/Private/Tests`，`Weft.Keyboard.*`）在一个只放了这个插件的宿主工程里跑，编辑器不画（`-nullrhi`），所以测的是页面这一侧：`UWeftView` 的键（Slate 的键事件到页面的焦点元素、修饰键、重复、文字、阻止的键与丢掉的文字、手柄的键不算）与窗口焦点，`SWeftViewport` 的键盘焦点（Slate 的焦点进出、哪一层拿键盘、按下给焦点在页面的 mousedown 之前、`FocusView`、页面没用的键 Unhandled、代理项合成）。宿主工程：一个 `.uproject`（`"Plugins": [{"Name": "Weft", "Enabled": true}]`），`Plugins/Weft` 指向本仓库的签出（目录联接），`Config/DefaultEngine.ini` 给一张启动地图（`[/Script/EngineSettings.GameMapsSettings]` 的 `EditorStartupMap=/Engine/Maps/Entry.Entry`：没有地图的空工程在 `-nullrhi` 下启动时崩溃），再加一个空的 `Content` 目录。UE 5.8.3 上两个测试都通过（weft `input` 分支 5b017a9）。
+自动化测试（`Source/Weft/Private/Tests`，`Weft.Keyboard.*`、`Weft.TextInput.*`）在一个只放了这个插件的宿主工程里跑，编辑器不画（`-nullrhi`），所以测的是页面这一侧：`UWeftView` 的键（Slate 的键事件到页面的焦点元素、修饰键、重复、文字、阻止的键与丢掉的文字、手柄的键不算）与窗口焦点，`SWeftViewport` 的键盘焦点（Slate 的焦点进出、哪一层拿键盘、按下给焦点在页面的 mousedown 之前、`FocusView`、页面没用的键 Unhandled、代理项合成），以及输入法的上下文：照 IMM 与 TSF 调用它的顺序（组合、上屏、没有组合直接插入、取消、页面结束的组合）、候选窗的位置、"Process" 键与打字的键。输入法的开关（Slate 输入法系统的活动上下文）要控件在窗口里，自动化测试里不测。宿主工程：一个 `.uproject`（`"Plugins": [{"Name": "Weft", "Enabled": true}]`），`Plugins/Weft` 指向本仓库的签出（目录联接），`Config/DefaultEngine.ini` 给一张启动地图（`[/Script/EngineSettings.GameMapsSettings]` 的 `EditorStartupMap=/Engine/Maps/Entry.Entry`：没有地图的空工程在 `-nullrhi` 下启动时崩溃），再加一个空的 `Content` 目录。UE 5.8.3 上三个测试都通过（weft `input` 分支 c5d612d）。
 
 ```powershell
 E:/UnrealEngine/UE_5.8/Engine/Build/BatchFiles/Build.bat UnrealEditor Win64 Development -Project=<宿主>/WeftTests.uproject -WaitMutex
@@ -89,7 +97,7 @@ E:/UnrealEngine/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe <宿主>/WeftT
 ## 限制
 
 - 只有 Win64 + D3D12；D3D11、Vulkan RHI 下不画（记警告）。
-- 输入有指针（移动、按键、滚轮、离开）与键盘；IME 与手柄还没有。Slate 不给扫描码，所以 Num Lock 关着时小键盘的键的 code 是它这时的键（End，Chrome 是 Numpad1），小键盘的 Enter 是 Enter；右 Alt 一律是 Alt。
+- 输入有指针（移动、按键、滚轮、离开）、键盘与输入法；手柄还没有。输入法吃掉的键没有 code。Slate 不给扫描码，所以 Num Lock 关着时小键盘的键的 code 是它这时的键（End，Chrome 是 Numpad1），小键盘的 Enter 是 Enter；右 Alt 一律是 Alt。
 - 字体用系统字体（weft 的默认），以及 `UWeftSubsystem::AddFont` 加的字体文件。
 - 页面里的图片只有 PNG 背景图（`url()`），没有 `<img>`、JPEG 与 `data:` URL。
 - 一个运行时一个渲染器：所有 View 由同一个 weft 渲染器画。

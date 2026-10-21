@@ -45,6 +45,19 @@ enum class EWeftInput : uint32
 };
 ENUM_CLASS_FLAGS(EWeftInput);
 
+/** Where text input goes (weft_text_input): a text field the user may edit (an input of a text type, a textarea) has the
+ *  page's focus while the page has the window's; whether an input method composes in it, whether it is a password field
+ *  (where Chrome keeps input methods off), and its caret and border box in logical px (an input method's candidate
+ *  window goes below the caret). */
+struct FWeftTextInput
+{
+	bool bActive = false;
+	bool bComposing = false;
+	bool bPassword = false;
+	FBox2D Caret = FBox2D(ForceInit);
+	FBox2D Field = FBox2D(ForceInit);
+};
+
 /** A message of the page: weft.engine.send (CallId 0) or weft.engine.call (complete it with CompleteCall). */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnWeftMessage, const FString& /*Name*/, const FString& /*JsonValue*/, uint64 /*CallId*/);
 
@@ -131,9 +144,10 @@ public:
 	 *  OnMessage and its diagnostics to the log. */
 	void Advance();
 
-	/** A pointer event at a position in logical px; Buttons as MouseEvent.buttons after it. True when a listener
-	 *  prevented its default action. */
-	bool Pointer(EWeftPointer Kind, FVector2D Position, uint32 Buttons, FVector2D Wheel = FVector2D::ZeroVector);
+	/** A pointer event at a position in logical px; Buttons as MouseEvent.buttons after it, Modifiers the keys held (Shift
+	 *  extends a text field's selection to a press). True when a listener prevented its default action. */
+	bool Pointer(EWeftPointer Kind, FVector2D Position, uint32 Buttons, FVector2D Wheel = FVector2D::ZeroVector,
+		EWeftModifier Modifiers = EWeftModifier::None);
 
 	/** Whether a page element other than the root takes pointer events at a position (logical px), and the CSS cursor
 	 *  it shows there. */
@@ -142,14 +156,16 @@ public:
 	/**
 	 * A key going down (or repeating) or up at the page's focused element (the body without one), with Chrome's default
 	 * actions: Tab moves the focus, Enter and Space press buttons, the arrow and page keys scroll. Code is its
-	 * KeyboardEvent.code ("KeyA", "Enter"), Value its key (empty: what the system's keyboard layout types with it). What
-	 * the page did with it.
+	 * KeyboardEvent.code ("KeyA", "Enter"), Value its key (empty: what the system's keyboard layout types with it); bIme
+	 * a key an input method took (it goes down as "Process", keyCode 229, with no default action). What the page did with
+	 * it: a key that types into a text field is the page's as it goes down.
 	 */
 	EWeftInput Key(bool bDown, const FString& Code, const FString& Value = FString(),
-		EWeftModifier Modifiers = EWeftModifier::None, bool bRepeat = false);
+		EWeftModifier Modifiers = EWeftModifier::None, bool bRepeat = false, bool bIme = false);
 	/** A key Slate gives (OnKeyDown, OnKeyUp): its code the physical key the system's layout puts its Windows virtual key
-	 *  on, its modifiers the event's and the system's (the Windows keys, Num Lock). None for a key that is not the
-	 *  keyboard's (a gamepad's). */
+	 *  on, its modifiers the event's and the system's (the Windows keys, Num Lock). A key the input method took comes as
+	 *  VK_PROCESSKEY without its physical key: it goes down as "Process" with no code, and its keyup is dropped. None for
+	 *  a key that is not the keyboard's (a gamepad's). */
 	EWeftInput Key(const FKeyEvent& Event, bool bDown);
 	/** Text a key typed, after its keydown (Slate's OnKeyChar): a keypress for each character. After a keydown the page
 	 *  used the text is dropped (Default), as Chrome drops it. */
@@ -157,6 +173,18 @@ public:
 	/** The keyboard focus of the game's window coming to the page or leaving it, as a browser window's: the focused
 	 *  element's blur and focus, the window's, and :focus only while it has it. A View starts with it. */
 	void SetFocus(bool bFocused);
+
+	/** Where text input goes now (FWeftTextInput): SWeftViewport turns the platform's input method on and off by it and
+	 *  places its candidate window. */
+	FWeftTextInput GetTextInput() const;
+	/** An input method's composition at the page's focused text field, as Chrome takes one (compositionstart,
+	 *  compositionupdate, beforeinput, input): Text replaces the composition (or, as one starts, the selection), the caret
+	 *  at Cursor (a UTF-16 index in Text; its end when negative). Empty Text cancels the composition. Whether a text field
+	 *  the user may edit took it. For an input method the game reads itself. */
+	bool Compose(const FString& Text, int32 Cursor = -1);
+	/** An input method commits text at the page's focused text field: the composition ends with it; without one it goes
+	 *  in as typed text does, without keys. Whether a text field the user may edit took it. */
+	bool CommitText(const FString& Text);
 
 	/** The frame published last with the anchors set last, for the render thread; null before the first frame. */
 	TSharedPtr<FWeftFramePacket, ESPMode::ThreadSafe> MakePacket() const;
@@ -177,7 +205,7 @@ private:
 	/** Destroys the View (the runtime is going). */
 	void Close();
 	/** weft_view_key with the key's code and value as NUL-terminated UTF-8. */
-	EWeftInput KeyUtf8(bool bDown, const char* Code, const char* Value, uint32 Modifiers, bool bRepeat);
+	EWeftInput KeyUtf8(bool bDown, const char* Code, const char* Value, uint32 Modifiers, bool bRepeat, bool bIme = false);
 
 	weft_runtime* Runtime = nullptr;
 	// weft_view_handle.

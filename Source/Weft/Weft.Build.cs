@@ -10,7 +10,7 @@ public class Weft : ModuleRules
 		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "Slate", "SlateCore" });
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
-			"InputCore", "Json", "Projects", "RenderCore", "RHI", "Renderer", "WeftLibrary"
+			"ApplicationCore", "InputCore", "Json", "Projects", "RenderCore", "RHI", "Renderer", "WeftLibrary"
 		});
 		if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
