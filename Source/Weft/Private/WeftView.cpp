@@ -274,6 +274,11 @@ bool UWeftView::GetStorage(uint64& Revision, TMap<FString, FString>& OutItems) c
 #endif
 }
 
+double UWeftView::GetPageTime() const
+{
+	return FPlatformTime::Seconds() - StartSeconds;
+}
+
 void UWeftView::Advance()
 {
 #if WITH_WEFT
@@ -283,7 +288,7 @@ void UWeftView::Advance()
 	}
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Advance);
 	const weft_view_handle View = Handle(RuntimeId, Slot, Generation);
-	Succeeded(weft_view_advance(Runtime, View, FPlatformTime::Seconds() - StartSeconds), TEXT("advance a view"));
+	Succeeded(weft_view_advance(Runtime, View, GetPageTime()), TEXT("advance a view"));
 	// The page's messages: handed on after the drain, so that handlers may call into the View.
 	struct FMessage
 	{

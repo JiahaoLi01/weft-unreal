@@ -96,6 +96,11 @@ public:
 	bool ClearStorage();
 	bool GetStorage(uint64& Revision, TMap<FString, FString>& OutItems) const;
 
+	/** The page's clock now, in seconds: its frames run at it (performance.now() reads it in ms). Times the engine gives
+	 *  the page (when something began, for the page to carry on each frame) are on it. */
+	UFUNCTION(BlueprintPure, Category = "Weft")
+	double GetPageTime() const;
+
 	/** Runs the page up to now (its events, view models, tasks, animation frames and scene), then hands its messages to
 	 *  OnMessage and its diagnostics to the log. */
 	void Advance();

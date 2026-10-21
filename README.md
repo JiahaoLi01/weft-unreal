@@ -37,6 +37,10 @@ GetWorld()->GetGameViewport()->AddViewportWidgetContent(SNew(SWeftViewport).View
 View->Emit(TEXT("units"), Json, /*bLatest*/ true);                // weft.engine.on('units', ...)
 View->SetModel(TEXT("camera"), TEXT("{\"tier\":\"Mid\"}"));       // weft.engine.model('camera')
 
+// 页面每帧自己推进的东西（施法条、冷却）：只在开始时给它开始的时刻与时长。时刻在页面的时钟上（秒；页面里
+// performance.now() 与 requestAnimationFrame 的时间是它的毫秒）
+View->Emit(TEXT("cast"), FString::Printf(TEXT("{\"start\":%.4f,\"duration\":2.4}"), View->GetPageTime()));
+
 // 每帧跟着场景走的元素：锚点（页面写 data-anchor="<Key>"），由渲染线程直接移动，不跑脚本、不重排
 View->SetAnchors(Anchors);   // FWeftAnchor: Key, Position（逻辑 px）, Scale, Depth, bHidden, bBehind
 ```
