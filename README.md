@@ -61,7 +61,7 @@ Viewport->FocusView(View);
 
 ## 键盘
 
-- 焦点：`SWeftViewport` 的键盘给它的一层，像浏览器窗口的键盘给它的页面：鼠标最近一次按下的那层，或 `FocusView` 给的那层，都没有时是最上面的可交互层。按在一层的页面上时控件拿到 Slate 的键盘焦点（`SetUserFocus`）；控件有 Slate 的键盘焦点、应用在前台时，那一层的页面有焦点（window 的 focus 与焦点元素的 focus，`:focus`、`:focus-visible`、`document.hasFocus()` 只在这时成立），其他层的页面没有。按在游戏上（没有页面接的地方）时游戏视口拿走焦点，页面收到 blur。
+- 焦点：`SWeftViewport` 的键盘给它的一层，像浏览器窗口的键盘给它的页面：鼠标最近一次按下的那层，或 `FocusView` 给的那层，都没有时是最上面的可交互层。按在一层的页面上时控件拿到 Slate 的键盘焦点（`SetUserFocus`）；控件有 Slate 的键盘焦点、应用在前台时，那一层的页面有焦点（window 的 focus 与焦点元素的 focus，`:focus`、`:focus-visible`、`document.hasFocus()` 只在这时成立），其他层的页面没有。按在游戏上（没有页面接的地方）时游戏视口拿走焦点，页面收到 blur。`FocusView` 可以在 `BeginPlay` 里调：打包的游戏在窗口第一次显示游戏视口时（第一个关卡的 `BeginPlay` 之后）把焦点给游戏视口，控件在它的第一帧把焦点拿回来。控件不画 Slate 的焦点框，焦点由页面自己画（`:focus-visible`）。
 - 按键：`OnKeyDown`、`OnKeyUp` 交给那层的页面（`UWeftView::Key`）：code 是系统键盘布局把 Slate 给的 Windows 虚拟键放在的物理键（`weft_keyboard_code`；Slate 不给扫描码），key 是布局用它打出的字符，修饰键取事件的，加上 Slate 在 Windows 上不报的 Windows 键与 Num Lock；系统的自动重复照 Slate 给的 `IsRepeat`。`OnKeyChar` 的字符是页面的 keypress（`UWeftView::Text`；BMP 以外的字符两个代理项合成一个）。
 - 页面用没用：页面阻止了的键（`preventDefault`）和 weft 执行了默认动作的键（移焦点、滚动、点击）是 Handled，其余 Unhandled，照 Slate 的路由往上交给游戏视口与游戏的输入，同 Chrome 把页面没用的键还给浏览器。
 - 游戏自己给键：`UWeftView::Key(bDown, Code, Value, Modifiers, bRepeat)`、`Text`、`SetFocus`，给不在 `SWeftViewport` 里的 View，或游戏自己判断的键。
