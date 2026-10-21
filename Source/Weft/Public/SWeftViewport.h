@@ -36,6 +36,12 @@ enum class EWeftPointerRouting : uint8
  * before a button, the wheel or a leave: Slate hands over every move the platform queued, many in a slow frame, and each
  * costs a page a hit test and its handlers, which made a slow frame slower the more the pointer moved. A move where the
  * pointer stands, which Slate repeats while widgets move under it, they get at most every 0.1 s.
+ *
+ * The keyboard goes to one layer, as a browser window's to its page: the one a press last went to, or FocusView's, else
+ * the topmost interactive layer. A press on a page takes Slate's keyboard focus; while the widget has it (and the
+ * application is active) that layer's page has the focus (window focus, :focus), the other pages not. Its keys go to the
+ * page's focused element with Chrome's default actions; a key the page does not use is unhandled, so it goes on to the
+ * game (under a game viewport, its input), as Chrome gives the browser the keys a page did not use.
  */
 class WEFT_API SWeftViewport : public SLeafWidget
 {
@@ -57,6 +63,13 @@ public:
 		EWeftPointerRouting Routing = EWeftPointerRouting::Element);
 	void RemoveView(const UWeftView* InView);
 	int32 NumViews() const { return Layers.Num(); }
+
+	/** Gives the view's layer the keyboard, and the widget Slate's keyboard focus for every user (the game takes it back
+	 *  with FSlateApplication::SetAllUserFocusToGameViewport, or a press on it). */
+	void FocusView(UWeftView* InView);
+	/** The view whose page gets the keys while the widget has the keyboard focus: the one a press or FocusView gave it
+	 *  last, else the topmost interactive layer's; null without an interactive layer. */
+	UWeftView* GetKeyboardView() const;
 
 	/** The View's logical px of a point in the widget's window, in Slate's pixels (a viewport's own pixels for a widget
 	 *  that covers a game viewport); the widget's last geometry. */
@@ -81,6 +94,13 @@ public:
 	virtual void OnMouseLeave(const FPointerEvent& MouseEvent) override;
 	virtual FCursorReply OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const override;
 
+	virtual bool SupportsKeyboardFocus() const override;
+	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
+	virtual FReply OnKeyUp(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
+	virtual FReply OnKeyChar(const FGeometry& MyGeometry, const FCharacterEvent& InCharacterEvent) override;
+	virtual FReply OnFocusReceived(const FGeometry& MyGeometry, const FFocusEvent& InFocusEvent) override;
+	virtual void OnFocusLost(const FFocusEvent& InFocusEvent) override;
+
 private:
 	struct FLayer
 	{
@@ -90,6 +110,8 @@ private:
 		bool bInteractive = true;
 		EWeftPointerRouting Routing = EWeftPointerRouting::Element;
 		bool bPointerOver = false;
+		/** Whether the page was last told it has the keyboard focus (weft's Views start with it). */
+		bool bPageFocus = true;
 	};
 
 	/** The topmost interactive layer whose page takes the pointer at a point of the widget (its units), and its cursor;
@@ -109,12 +131,20 @@ private:
 	static FVector2D ToPage(const UWeftView* Page, FVector2D Local);
 	/** Visible while a layer is interactive, else invisible to the pointer. */
 	void UpdateVisibility();
+	/** Tells each layer's page whether it has the keyboard focus: the keyboard layer's has it while the widget has
+	 *  Slate's (or a press is giving it) and the application is active. */
+	void ApplyFocus(bool bPressing = false);
 	static uint32 Buttons(const FPointerEvent& MouseEvent);
 
 	/** By order, lowest first. */
 	TArray<FLayer> Layers;
 	/** The view that took a button down, which gets the pointer until every button is up. */
 	TWeakObjectPtr<UWeftView> Captor;
+	/** The view a press or FocusView gave the keyboard; whether the widget has Slate's keyboard focus; a high surrogate
+	 *  of OnKeyChar, waiting for its low one. */
+	TWeakObjectPtr<UWeftView> KeyboardView;
+	bool bKeyboardFocus = false;
+	TCHAR HighSurrogate = 0;
 	FVector2D LastPosition = FVector2D::ZeroVector;
 	float LastScale = 1.f;
 

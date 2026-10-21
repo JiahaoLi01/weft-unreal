@@ -1,11 +1,16 @@
 #include "WeftView.h"
 
 #include "HAL/PlatformTime.h"
+#include "Input/Events.h"
 #include "Misc/FileHelper.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Render/WeftFramePacket.h"
 #include "WeftModule.h"
 #include "WeftValue.h"
+
+#if PLATFORM_WINDOWS
+#include "Windows/WindowsHWrapper.h"
+#endif
 
 #if WITH_WEFT
 namespace
@@ -29,6 +34,48 @@ namespace
 			return false;
 		}
 		return true;
+	}
+
+	// The modifiers of a key Slate gives: its event's, with the Windows keys and Num Lock, which Windows' Slate leaves
+	// out. A modifier key's own keydown has its flag; its keyup not, unless the other of its pair is down.
+	uint32 ModifiersOf(const FKeyEvent& Event, const char* Code, bool bDown)
+	{
+		const FModifierKeysState& State = Event.GetModifierKeys();
+		bool bLeftMeta = State.IsLeftCommandDown();
+		bool bRightMeta = State.IsRightCommandDown();
+		uint32 Modifiers = (State.IsShiftDown() ? WEFT_MODIFIER_SHIFT : 0u) |
+			(State.IsControlDown() ? WEFT_MODIFIER_CONTROL : 0u) | (State.IsAltDown() ? WEFT_MODIFIER_ALT : 0u) |
+			(State.AreCapsLocked() ? WEFT_MODIFIER_CAPS_LOCK : 0u);
+#if PLATFORM_WINDOWS
+		bLeftMeta = bLeftMeta || (::GetKeyState(VK_LWIN) & 0x8000) != 0;
+		bRightMeta = bRightMeta || (::GetKeyState(VK_RWIN) & 0x8000) != 0;
+		Modifiers |= (::GetKeyState(VK_NUMLOCK) & 1) != 0 ? WEFT_MODIFIER_NUM_LOCK : 0u;
+#endif
+		Modifiers |= bLeftMeta || bRightMeta ? WEFT_MODIFIER_META : 0u;
+		struct FPair
+		{
+			const char* Left;
+			const char* Right;
+			uint32 Flag;
+			bool bLeft;
+			bool bRight;
+		};
+		const FPair Pairs[] = {
+			{"ShiftLeft", "ShiftRight", WEFT_MODIFIER_SHIFT, State.IsLeftShiftDown(), State.IsRightShiftDown()},
+			{"ControlLeft", "ControlRight", WEFT_MODIFIER_CONTROL, State.IsLeftControlDown(), State.IsRightControlDown()},
+			{"AltLeft", "AltRight", WEFT_MODIFIER_ALT, State.IsLeftAltDown(), State.IsRightAltDown()},
+			{"MetaLeft", "MetaRight", WEFT_MODIFIER_META, bLeftMeta, bRightMeta},
+		};
+		for (const FPair& Pair : Pairs)
+		{
+			const bool bLeft = FCStringAnsi::Strcmp(Code, Pair.Left) == 0;
+			if (bLeft || FCStringAnsi::Strcmp(Code, Pair.Right) == 0)
+			{
+				const bool bOther = bLeft ? Pair.bRight : Pair.bLeft;
+				Modifiers = bDown || bOther ? Modifiers | Pair.Flag : Modifiers & ~Pair.Flag;
+			}
+		}
+		return Modifiers;
 	}
 
 	// A file a page names (a url() image), by the path weft resolved against the page's base: read as the engine reads
@@ -386,6 +433,96 @@ bool UWeftView::HitTest(FVector2D Position, FString& OutCursor) const
 	return Hit.element != 0;
 #else
 	return false;
+#endif
+}
+
+EWeftInput UWeftView::Key(bool bDown, const FString& Code, const FString& Value, EWeftModifier Modifiers, bool bRepeat)
+{
+#if WITH_WEFT
+	if (!Runtime || Code.IsEmpty())
+	{
+		return EWeftInput::None;
+	}
+	const FTCHARToUTF8 CodeUtf8(*Code);
+	const FTCHARToUTF8 ValueUtf8(*Value);
+	char Typed[32];
+	const char* KeyValue = !Value.IsEmpty() ? ValueUtf8.Get()
+		: weft_keyboard_key(CodeUtf8.Get(), size_t(CodeUtf8.Length()), uint32(Modifiers), Typed) == WEFT_OK ? Typed
+		: "Unidentified";
+	return KeyUtf8(bDown, CodeUtf8.Get(), KeyValue, uint32(Modifiers), bRepeat);
+#else
+	return EWeftInput::None;
+#endif
+}
+
+EWeftInput UWeftView::Key(const FKeyEvent& Event, bool bDown)
+{
+#if WITH_WEFT
+	char Code[32];
+	if (!Runtime || weft_keyboard_code(Event.GetKeyCode(), Code) != WEFT_OK)
+	{
+		return EWeftInput::None;
+	}
+	const uint32 Modifiers = ModifiersOf(Event, Code, bDown);
+	char Typed[32];
+	const char* Value =
+		weft_keyboard_key(Code, size_t(FCStringAnsi::Strlen(Code)), Modifiers, Typed) == WEFT_OK ? Typed : "Unidentified";
+	return KeyUtf8(bDown, Code, Value, Modifiers, bDown && Event.IsRepeat());
+#else
+	return EWeftInput::None;
+#endif
+}
+
+EWeftInput UWeftView::KeyUtf8(bool bDown, const char* Code, const char* Value, uint32 Modifiers, bool bRepeat)
+{
+#if WITH_WEFT
+	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Key);
+	weft_key_event Event{sizeof(Event)};
+	Event.kind = bDown ? WEFT_KEY_DOWN : WEFT_KEY_UP;
+	Event.key = Value;
+	Event.key_size = size_t(FCStringAnsi::Strlen(Value));
+	Event.code = Code;
+	Event.code_size = size_t(FCStringAnsi::Strlen(Code));
+	Event.modifiers = Modifiers;
+	Event.flags = bRepeat ? WEFT_KEY_REPEAT : 0u;
+	uint32 Handled = 0;
+	if (weft_view_key(Runtime, Handle(RuntimeId, Slot, Generation), &Event, &Handled) != WEFT_OK)
+	{
+		return EWeftInput::None;
+	}
+	return EWeftInput(Handled);
+#else
+	return EWeftInput::None;
+#endif
+}
+
+EWeftInput UWeftView::Text(const FString& Typed)
+{
+#if WITH_WEFT
+	if (!Runtime || Typed.IsEmpty())
+	{
+		return EWeftInput::None;
+	}
+	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Text);
+	const FTCHARToUTF8 Utf8(*Typed);
+	uint32 Handled = 0;
+	if (weft_view_text(Runtime, Handle(RuntimeId, Slot, Generation), Utf8.Get(), size_t(Utf8.Length()), &Handled) != WEFT_OK)
+	{
+		return EWeftInput::None;
+	}
+	return EWeftInput(Handled);
+#else
+	return EWeftInput::None;
+#endif
+}
+
+void UWeftView::SetFocus(bool bFocused)
+{
+#if WITH_WEFT
+	if (Runtime)
+	{
+		Succeeded(weft_view_set_focus(Runtime, Handle(RuntimeId, Slot, Generation), bFocused ? 1u : 0u), TEXT("set the focus"));
+	}
 #endif
 }
 

@@ -54,7 +54,8 @@ struct WEFT_API FWeftPage
 	 *  diagnostic instead of refusing the page. Pages a build tool writes (Tailwind and the like) need it. */
 	bool bForgivingCss = false;
 	/** The web platform pages written for browsers expect (WEFT_PAGE_WEB_PLATFORM): the console as log lines,
-	 *  localStorage (the View's, see UWeftView::SetStorageItem), dataset, focus, KeyboardEvent, matchMedia. */
+	 *  localStorage (the View's, see UWeftView::SetStorageItem), dataset, matchMedia. The focus and the keyboard are
+	 *  every page's. */
 	bool bWebPlatform = false;
 	/**
 	 * Where the stylesheet's relative URLs (background-image: url()) start: its file's path, or a folder ending in '/'.

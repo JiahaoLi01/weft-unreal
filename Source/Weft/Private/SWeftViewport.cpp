@@ -39,9 +39,13 @@ void SWeftViewport::AddView(UWeftView* InView, int32 Order, bool bInteractive, E
 	{
 		return;
 	}
+	// A view added again keeps what its page was told of the focus.
+	const FLayer* Before = Layers.FindByPredicate([InView](const FLayer& Other) { return Other.View.Get() == InView; });
+	const bool bPageFocus = Before ? Before->bPageFocus : true;
 	RemoveView(InView);
 	FLayer Layer;
 	Layer.View = InView;
+	Layer.bPageFocus = bPageFocus;
 	Layer.Order = Order;
 	Layer.bInteractive = bInteractive;
 	Layer.Routing = Routing;
@@ -57,6 +61,7 @@ void SWeftViewport::AddView(UWeftView* InView, int32 Order, bool bInteractive, E
 	Layers.Insert(MoveTemp(Layer), At == INDEX_NONE ? Layers.Num() : At);
 	Route.bValid = false;
 	UpdateVisibility();
+	ApplyFocus();
 }
 
 void SWeftViewport::RemoveView(const UWeftView* InView)
@@ -68,6 +73,106 @@ void SWeftViewport::RemoveView(const UWeftView* InView)
 	}
 	Route.bValid = false;
 	UpdateVisibility();
+}
+
+void SWeftViewport::FocusView(UWeftView* InView)
+{
+	KeyboardView = InView;
+	if (FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().SetAllUserFocus(AsShared(), EFocusCause::SetDirectly);
+	}
+	ApplyFocus();
+}
+
+UWeftView* SWeftViewport::GetKeyboardView() const
+{
+	const UWeftView* Chosen = KeyboardView.Get();
+	UWeftView* Topmost = nullptr;
+	for (const FLayer& Layer : Layers)
+	{
+		if (Layer.bInteractive && Layer.View.IsValid())
+		{
+			if (Layer.View.Get() == Chosen)
+			{
+				return Layer.View.Get();
+			}
+			Topmost = Layer.View.Get();
+		}
+	}
+	return Topmost;
+}
+
+void SWeftViewport::ApplyFocus(bool bPressing)
+{
+	const bool bActive = (bKeyboardFocus || bPressing) &&
+		(!FSlateApplication::IsInitialized() || FSlateApplication::Get().IsActive());
+	const UWeftView* Keyboard = GetKeyboardView();
+	for (FLayer& Layer : Layers)
+	{
+		UWeftView* Page = Layer.View.Get();
+		const bool bFocus = bActive && Page && Page == Keyboard;
+		if (Page && Layer.bPageFocus != bFocus)
+		{
+			Layer.bPageFocus = bFocus;
+			Page->SetFocus(bFocus);
+		}
+	}
+}
+
+bool SWeftViewport::SupportsKeyboardFocus() const
+{
+	return Layers.ContainsByPredicate([](const FLayer& Layer) { return Layer.bInteractive; });
+}
+
+FReply SWeftViewport::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
+{
+	UWeftView* Page = GetKeyboardView();
+	return Page && Page->Key(InKeyEvent, true) != EWeftInput::None ? FReply::Handled() : FReply::Unhandled();
+}
+
+FReply SWeftViewport::OnKeyUp(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
+{
+	UWeftView* Page = GetKeyboardView();
+	return Page && Page->Key(InKeyEvent, false) != EWeftInput::None ? FReply::Handled() : FReply::Unhandled();
+}
+
+FReply SWeftViewport::OnKeyChar(const FGeometry& MyGeometry, const FCharacterEvent& InCharacterEvent)
+{
+	UWeftView* Page = GetKeyboardView();
+	if (!Page)
+	{
+		return FReply::Unhandled();
+	}
+	// A character outside the Basic Multilingual Plane comes as its two surrogates.
+	const TCHAR Character = InCharacterEvent.GetCharacter();
+	if (Character >= 0xD800 && Character <= 0xDBFF)
+	{
+		HighSurrogate = Character;
+		return FReply::Handled();
+	}
+	FString Typed;
+	if (Character >= 0xDC00 && Character <= 0xDFFF && HighSurrogate)
+	{
+		Typed.AppendChar(HighSurrogate);
+	}
+	HighSurrogate = 0;
+	Typed.AppendChar(Character);
+	return Page->Text(Typed) != EWeftInput::None ? FReply::Handled() : FReply::Unhandled();
+}
+
+FReply SWeftViewport::OnFocusReceived(const FGeometry& MyGeometry, const FFocusEvent& InFocusEvent)
+{
+	bKeyboardFocus = true;
+	ApplyFocus();
+	return FReply::Handled();
+}
+
+void SWeftViewport::OnFocusLost(const FFocusEvent& InFocusEvent)
+{
+	bKeyboardFocus = false;
+	HighSurrogate = 0;
+	ApplyFocus();
 }
 
 void SWeftViewport::UpdateVisibility()
@@ -95,6 +200,9 @@ void SWeftViewport::Tick(const FGeometry& AllottedGeometry, const double InCurre
 {
 	LastPosition = AllottedGeometry.GetAbsolutePosition();
 	LastScale = AllottedGeometry.Scale;
+	// The keyboard focus as Slate has it now, and the application's (a window of another application took it).
+	bKeyboardFocus = HasKeyboardFocus();
+	ApplyFocus();
 	for (const FLayer& Layer : Layers)
 	{
 		if (UWeftView* Page = Layer.View.Get())
@@ -293,9 +401,13 @@ FReply SWeftViewport::OnMouseButtonDown(const FGeometry& MyGeometry, const FPoin
 		return FReply::Unhandled();
 	}
 	Captor = Page;
+	// The press gives the layer the keyboard and the widget Slate's focus: the page has it before its mousedown, as a
+	// browser window takes the focus before the press that gave it.
+	KeyboardView = Page;
+	ApplyFocus(/*bPressing*/ true);
 	Page->Pointer(EWeftPointer::Down, ToPage(Page, Local), Buttons(MouseEvent));
 	Route.bValid = false;
-	return FReply::Handled().CaptureMouse(AsShared());
+	return FReply::Handled().CaptureMouse(AsShared()).SetUserFocus(AsShared(), EFocusCause::Mouse);
 }
 
 FReply SWeftViewport::OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)

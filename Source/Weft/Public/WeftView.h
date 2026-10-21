@@ -8,6 +8,7 @@
 
 struct weft_runtime;
 struct FWeftFramePacket;
+struct FKeyEvent;
 
 /** How a pointer event reaches a page (weft_pointer_kind). */
 enum class EWeftPointer : uint8
@@ -18,6 +19,31 @@ enum class EWeftPointer : uint8
 	Wheel,
 	Leave
 };
+
+/** The modifiers held during a key event (WEFT_MODIFIER_*, KeyboardEvent.getModifierState): a modifier key's own keydown
+ *  has its flag, its keyup not. */
+enum class EWeftModifier : uint32
+{
+	None = 0,
+	Shift = 1,
+	Control = 2,
+	Alt = 4,
+	Meta = 8,
+	AltGraph = 16,
+	CapsLock = 32,
+	NumLock = 64
+};
+ENUM_CLASS_FLAGS(EWeftModifier);
+
+/** What a page did with a key or the text it typed (WEFT_INPUT_*): a listener prevented its default action, or weft
+ *  acted on it (moved the focus, scrolled, clicked, made a button :active). A key the page used is not the game's. */
+enum class EWeftInput : uint32
+{
+	None = 0,
+	Prevented = 1,
+	Default = 2
+};
+ENUM_CLASS_FLAGS(EWeftInput);
 
 /** A message of the page: weft.engine.send (CallId 0) or weft.engine.call (complete it with CompleteCall). */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnWeftMessage, const FString& /*Name*/, const FString& /*JsonValue*/, uint64 /*CallId*/);
@@ -113,6 +139,25 @@ public:
 	 *  it shows there. */
 	bool HitTest(FVector2D Position, FString& OutCursor) const;
 
+	/**
+	 * A key going down (or repeating) or up at the page's focused element (the body without one), with Chrome's default
+	 * actions: Tab moves the focus, Enter and Space press buttons, the arrow and page keys scroll. Code is its
+	 * KeyboardEvent.code ("KeyA", "Enter"), Value its key (empty: what the system's keyboard layout types with it). What
+	 * the page did with it.
+	 */
+	EWeftInput Key(bool bDown, const FString& Code, const FString& Value = FString(),
+		EWeftModifier Modifiers = EWeftModifier::None, bool bRepeat = false);
+	/** A key Slate gives (OnKeyDown, OnKeyUp): its code the physical key the system's layout puts its Windows virtual key
+	 *  on, its modifiers the event's and the system's (the Windows keys, Num Lock). None for a key that is not the
+	 *  keyboard's (a gamepad's). */
+	EWeftInput Key(const FKeyEvent& Event, bool bDown);
+	/** Text a key typed, after its keydown (Slate's OnKeyChar): a keypress for each character. After a keydown the page
+	 *  used the text is dropped (Default), as Chrome drops it. */
+	EWeftInput Text(const FString& Typed);
+	/** The keyboard focus of the game's window coming to the page or leaving it, as a browser window's: the focused
+	 *  element's blur and focus, the window's, and :focus only while it has it. A View starts with it. */
+	void SetFocus(bool bFocused);
+
 	/** The frame published last with the anchors set last, for the render thread; null before the first frame. */
 	TSharedPtr<FWeftFramePacket, ESPMode::ThreadSafe> MakePacket() const;
 
@@ -131,6 +176,8 @@ private:
 	bool Open(weft_runtime* InRuntime);
 	/** Destroys the View (the runtime is going). */
 	void Close();
+	/** weft_view_key with the key's code and value as NUL-terminated UTF-8. */
+	EWeftInput KeyUtf8(bool bDown, const char* Code, const char* Value, uint32 Modifiers, bool bRepeat);
 
 	weft_runtime* Runtime = nullptr;
 	// weft_view_handle.
