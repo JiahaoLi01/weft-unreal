@@ -3,6 +3,7 @@
 #if WITH_WEFT && PLATFORM_WINDOWS
 
 #include "ID3D12DynamicRHI.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "RHICommandList.h"
 #include "Render/WeftFramePacket.h"
 #include "Render/WeftOwnerThread.h"
@@ -108,10 +109,13 @@ const weft_render_handle* FWeftD3D12Backend::Import(const FNamedTexture& Named)
 		Refused.Add(Named.Texture);
 		return nullptr;
 	}
+	// A render target's writes are queued on the RHI's direct queue between the frames that sample it, which is what
+	// weft's live textures ask; the rest stay as they were imported.
 	const weft_render_d3d12_texture Native{sizeof(Native), WEFT_RENDER_EXTERNAL_ABI_VERSION, Named.Resource, 0};
 	const weft_render_external_texture Description{sizeof(Description), WEFT_RENDER_EXTERNAL_ABI_VERSION, Identity, NextContentId++, 1,
 		uint32(Named.Size.X), uint32(Named.Size.Y), Named.Format, WEFT_RENDER_EXTERNAL_LINEAR_PREMULTIPLIED, WEFT_RENDER_EXTERNAL_TOP_LEFT,
-		WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED, Named.Mips, 0, &Native, sizeof(Native), nullptr, nullptr};
+		Named.bLive ? WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE : WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED, Named.Mips, 0, &Native,
+		sizeof(Native), nullptr, nullptr};
 	weft_render_handle Handle{};
 	if (const weft_render_result Result = weft_renderer_import_texture(Renderer, &Description, &Handle); Result != WEFT_RENDER_OK)
 	{
@@ -143,6 +147,7 @@ void FWeftD3D12Backend::ReleaseImports(bool bAll)
 bool FWeftD3D12Backend::Record(ID3D12GraphicsCommandList* List, ID3D12Resource* Target, FIntPoint Size, uint32 Format,
 	FWeftFramePacket& Packet, TConstArrayView<FNamedTexture> Named)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Record);
 	Retire();
 	++Draws;
 	// The engine's textures by the names the page draws them by.
@@ -223,6 +228,7 @@ bool FWeftD3D12Backend::Draw(FRHICommandList& Executing, FRHITexture* Target, FI
 		Entry.Texture = Texture.Texture;
 		Entry.Size = FIntPoint(Desc.Extent.X, Desc.Extent.Y);
 		Entry.Mips = Desc.NumMips;
+		Entry.bLive = EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::UAV);
 		if (TextureFormat(Desc, Entry.Format) && Desc.Dimension == ETextureDimension::Texture2D)
 		{
 			Entry.Resource = RHI->RHIGetResource(Texture.Texture);

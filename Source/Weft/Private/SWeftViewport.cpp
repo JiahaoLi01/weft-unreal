@@ -15,6 +15,10 @@ namespace
 {
 	TAutoConsoleVariable<int32> CVarWeftDraw(TEXT("weft.Draw"), 1,
 		TEXT("Draw weft views (0: their pages still run, nothing is drawn)."), ECVF_Default);
+
+	// How often a page takes a move of a pointer that stands still (Slate sends one as widgets move under it): each
+	// is a hit test of the page's latest frame.
+	constexpr double StillMoveSeconds = 0.1;
 }
 
 void SWeftViewport::Construct(const FArguments& InArgs)
@@ -246,21 +250,32 @@ void SWeftViewport::FlushPointer()
 			Page->Pointer(EWeftPointer::Move, ToPage(Page, PendingLocal), PendingButtons);
 		}
 	}
+	LastMove = PendingLocal;
+	LastMoveButtons = PendingButtons;
+	LastMoveTime = FPlatformTime::Seconds();
 	// The pages' handlers may have changed what is under the pointer.
 	Route.bValid = false;
 }
 
 FReply SWeftViewport::OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
-	// Only kept: the pages get it in the frame's Tick (or before a button, the wheel or a leave).
-	PendingLocal = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-	PendingButtons = Buttons(MouseEvent);
-	bPointerPending = true;
-	// Which layer the pointer is over, for the game this frame: at the frame's first move.
-	if (RoutedFrame != GFrameCounter)
+	const FVector2D Local = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+	const uint32 Pressed = Buttons(MouseEvent);
+	// A move where the pointer stands (Slate repeats one while widgets move under it) at most every StillMoveSeconds
+	// after the pages took one there.
+	if (bPointerPending || Local != LastMove || Pressed != LastMoveButtons ||
+		FPlatformTime::Seconds() - LastMoveTime >= StillMoveSeconds)
 	{
-		RoutedFrame = GFrameCounter;
-		SetPointerOver(RouteAt(PendingLocal));
+		// Only kept: the pages get it in the frame's Tick (or before a button, the wheel or a leave).
+		PendingLocal = Local;
+		PendingButtons = Pressed;
+		bPointerPending = true;
+		// Which layer the pointer is over, for the game this frame: at the frame's first move.
+		if (RoutedFrame != GFrameCounter)
+		{
+			RoutedFrame = GFrameCounter;
+			SetPointerOver(RouteAt(PendingLocal));
+		}
 	}
 	// The game sees the pointer move too, unless a page holds it.
 	return HasMouseCapture() ? FReply::Handled() : FReply::Unhandled();
@@ -326,6 +341,7 @@ FReply SWeftViewport::OnMouseWheel(const FGeometry& MyGeometry, const FPointerEv
 void SWeftViewport::OnMouseLeave(const FPointerEvent& MouseEvent)
 {
 	bPointerPending = false;
+	LastMove = FVector2D(-1, -1);
 	for (FLayer& Layer : Layers)
 	{
 		Layer.bPointerOver = false;

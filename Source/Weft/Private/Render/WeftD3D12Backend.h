@@ -20,7 +20,8 @@ class FWeftOwnerThread;
  * RHI's command list (so the RHI sets all its state again) and tells weft when the GPU completed the recording. The
  * RHI's calls run on the thread that executes the command list; weft's on the renderer's owner thread, which the
  * executing thread waits for. The engine's named textures (-weft-texture) are imported into weft the first time a frame
- * names them, as frozen textures, and released when no frame has named them for a while.
+ * names them, and released when no frame has named them for a while: one the engine can draw into (a render target a
+ * scene capture draws every frame) as live, the others as frozen.
  */
 class FWeftD3D12Backend final : public IWeftRhiBackend
 {
@@ -44,6 +45,8 @@ private:
 		uint32 Format = 0;
 		FIntPoint Size = FIntPoint::ZeroValue;
 		uint32 Mips = 1;
+		/** The engine may draw into it again between the frames that sample it. */
+		bool bLive = false;
 	};
 	/** Records the frame; true when it drew, the recording's serial then Serial. */
 	bool Record(ID3D12GraphicsCommandList* List, ID3D12Resource* Target, FIntPoint Size, uint32 Format, FWeftFramePacket& Packet,

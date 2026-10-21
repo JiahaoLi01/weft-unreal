@@ -34,7 +34,8 @@ enum class EWeftPointerRouting : uint8
  *
  * The pages get the pointer's moves once a frame, where it was last (as browsers align them with animation frames), and
  * before a button, the wheel or a leave: Slate hands over every move the platform queued, many in a slow frame, and each
- * costs a page a hit test and its handlers, which made a slow frame slower the more the pointer moved.
+ * costs a page a hit test and its handlers, which made a slow frame slower the more the pointer moved. A move where the
+ * pointer stands, which Slate repeats while widgets move under it, they get at most every 0.1 s.
  */
 class WEFT_API SWeftViewport : public SLeafWidget
 {
@@ -123,6 +124,11 @@ private:
 	uint32 PendingButtons = 0;
 	/** The frame (GFrameCounter) whose first move marked the layer the pointer is over. */
 	uint64 RoutedFrame = MAX_uint64;
+	/** The last move the pages took: Slate repeats a move where the pointer stands while widgets move under it, which
+	 *  the pages take at most every StillMoveSeconds (their hover follows what scrolls under a still pointer). */
+	FVector2D LastMove = FVector2D(-1, -1);
+	uint32 LastMoveButtons = 0;
+	double LastMoveTime = 0;
 
 	struct FRoute
 	{

@@ -62,9 +62,10 @@ public:
 	/**
 	 * A texture of the engine that pages draw by name: CSS `background-image: -weft-texture(Name)` (with
 	 * background-size, -position, -repeat and the rest), on every View. Null takes the name away. Names are letters,
-	 * digits, '-' and '_', at most 64 (false for another). The texture's contents must stay as they are while it is
-	 * named (weft samples it as a frozen texture); a texture that changes is named anew. Linear or sRGB RGBA8 and
-	 * BGRA8, and RGBA16F, are drawn. Game thread.
+	 * digits, '-' and '_', at most 64 (false for another). A render target may be drawn again every frame (a scene
+	 * capture's, before the View draws the page): weft samples it as a live texture. Any other texture's contents must
+	 * stay as they are while it is named (a frozen texture); one that changes is named anew. Linear or sRGB RGBA8 and
+	 * BGRA8, and RGBA16F, are drawn; their colours are linear and premultiplied. Game thread.
 	 */
 	bool SetTexture(const FString& Name, UTexture* Texture);
 	/** The named textures whose resources exist now, for a frame's draw (game thread). */
