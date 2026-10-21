@@ -65,7 +65,9 @@ public:
 	int32 NumViews() const { return Layers.Num(); }
 
 	/** Gives the view's layer the keyboard, and the widget Slate's keyboard focus for every user (the game takes it back
-	 *  with FSlateApplication::SetAllUserFocusToGameViewport, or a press on it). */
+	 *  with FSlateApplication::SetAllUserFocusToGameViewport, or a press on it). Asked before the widget is in a window,
+	 *  or before the engine has started (which gives the game viewport the focus as its window shows it), the widget
+	 *  takes the focus at its first frame. */
 	void FocusView(UWeftView* InView);
 	/** The view whose page gets the keys while the widget has the keyboard focus: the one a press or FocusView gave it
 	 *  last, else the topmost interactive layer's; null without an interactive layer. */
@@ -95,6 +97,8 @@ public:
 	virtual FCursorReply OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const override;
 
 	virtual bool SupportsKeyboardFocus() const override;
+	/** None: the pages show their focus themselves (:focus-visible), not Slate's rectangle round the whole widget. */
+	virtual const FSlateBrush* GetFocusBrush() const override { return nullptr; }
 	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
 	virtual FReply OnKeyUp(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
 	virtual FReply OnKeyChar(const FGeometry& MyGeometry, const FCharacterEvent& InCharacterEvent) override;
@@ -144,6 +148,8 @@ private:
 	 *  of OnKeyChar, waiting for its low one. */
 	TWeakObjectPtr<UWeftView> KeyboardView;
 	bool bKeyboardFocus = false;
+	/** FocusView's focus, asked again each frame until the widget has it. */
+	bool bFocusPending = false;
 	TCHAR HighSurrogate = 0;
 	FVector2D LastPosition = FVector2D::ZeroVector;
 	float LastScale = 1.f;

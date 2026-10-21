@@ -78,6 +78,7 @@ void SWeftViewport::RemoveView(const UWeftView* InView)
 void SWeftViewport::FocusView(UWeftView* InView)
 {
 	KeyboardView = InView;
+	bFocusPending = true;
 	if (FSlateApplication::IsInitialized())
 	{
 		FSlateApplication::Get().SetAllUserFocus(AsShared(), EFocusCause::SetDirectly);
@@ -200,8 +201,16 @@ void SWeftViewport::Tick(const FGeometry& AllottedGeometry, const double InCurre
 {
 	LastPosition = AllottedGeometry.GetAbsolutePosition();
 	LastScale = AllottedGeometry.Scale;
-	// The keyboard focus as Slate has it now, and the application's (a window of another application took it).
+	// The keyboard focus as Slate has it now, and the application's (a window of another application took it). A packaged
+	// game gives the game viewport the focus when its window first shows it, after the first level's BeginPlay: the
+	// focus FocusView asked for is taken again until the widget has it.
 	bKeyboardFocus = HasKeyboardFocus();
+	if (bFocusPending && !bKeyboardFocus && FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().SetAllUserFocus(AsShared(), EFocusCause::SetDirectly);
+		bKeyboardFocus = HasKeyboardFocus();
+	}
+	bFocusPending = bFocusPending && !bKeyboardFocus;
 	ApplyFocus();
 	for (const FLayer& Layer : Layers)
 	{
