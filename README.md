@@ -70,9 +70,10 @@ Viewport->FocusView(View);
 
 - 页面的 `<input>`（文字类型）与 `<textarea>` 照 Chrome 编辑（weft 做：打字、选择、鼠标、事件）。鼠标事件带修饰键，Shift+点击扩展选区。
 - 输入法：`SWeftViewport` 有一个 `ITextInputMethodContext`（`GetTextInputMethodContext`），在键盘那层的页面里可编辑的文本框有焦点（不是密码框，同 Chrome）、控件有 Slate 的键盘焦点时，它是 Slate 输入法系统（Windows 上 IMM 或 TSF）的活动上下文，输入法开着；否则关着（UE 默认关着输入法，只在有活动上下文时打开）。候选窗在文本框光标下面（`GetTextBounds` 给光标在桌面上的矩形，光标移动时告诉输入法布局变了）。
-- weft 自己保存文本框的值与选区，所以输入法编辑的文档只有它正在组合的串（以及到下一次交给页面之前它上屏的文字）：组合串的变化在输入法这次编辑完之后交给页面（按键之后、下一个键之前、每帧），作为页面的组合（compositionstart、compositionupdate、input），组合结束时上屏（compositionend），没有组合直接插入的文字作为输入法上屏的文字；没有组合时文档清空并告诉输入法。页面自己结束组合时（脚本改值、文本框失焦），输入法的这次组合作废（关掉再打开输入法）。
+- weft 自己保存文本框的值与选区，所以输入法编辑的文档只有它正在组合的串（以及到下一次交给页面之前它上屏的文字）：组合串的变化在输入法这次编辑完之后交给页面（按键之后、下一个键之前、每帧），作为页面的组合（compositionstart、compositionupdate、input），组合结束时上屏（compositionend）。组合的范围用输入法给的；不给时（微软拼音经 UE 的 TSF 文本存储就从不给）是这次组合开始以来输入法放进来的文字。UE 的 TSF 存储对不经组合直接插入的文字也开始一次组合，而它不会结束，所以这样的文字要到下一次组合结束（或文本框失焦）才上屏。没有组合时文档清空并告诉输入法。页面自己结束组合时（脚本改值、文本框失焦），输入法的这次组合作废（关掉再打开输入法）。
 - 输入法吃掉的键 Windows 给的是 `VK_PROCESSKEY`：页面收到 key 为 "Process"、keyCode 229 的 keydown（没有 code：Slate 不给扫描码，Chrome 的 code 是物理键的），是页面的（Handled）；它的 keyup 有真正的键时照常给页面（`isComposing`）。
 - `UWeftView::GetTextInput`、`Compose`、`CommitText`：游戏自己读输入法时用（`weft_view_text_input`、`weft_view_composition`、`weft_view_commit_text`）。
+- 在宣传页的 Unreal 播放器里用真实的微软拼音试过（2026-10-22）：组合串、候选窗在光标下面、空格上屏、组合中的 Enter 只上屏字母（页面不当作发送）、逗号键的全角“，”。
 
 ## 渲染
 
@@ -87,7 +88,7 @@ Viewport->FocusView(View);
 
 ## 测试
 
-自动化测试（`Source/Weft/Private/Tests`，`Weft.Keyboard.*`、`Weft.TextInput.*`）在一个只放了这个插件的宿主工程里跑，编辑器不画（`-nullrhi`），所以测的是页面这一侧：`UWeftView` 的键（Slate 的键事件到页面的焦点元素、修饰键、重复、文字、阻止的键与丢掉的文字、手柄的键不算）与窗口焦点，`SWeftViewport` 的键盘焦点（Slate 的焦点进出、哪一层拿键盘、按下给焦点在页面的 mousedown 之前、`FocusView`、页面没用的键 Unhandled、代理项合成），以及输入法的上下文：照 IMM 与 TSF 调用它的顺序（组合、上屏、没有组合直接插入、取消、页面结束的组合）、候选窗的位置、"Process" 键与打字的键。输入法的开关（Slate 输入法系统的活动上下文）要控件在窗口里，自动化测试里不测。宿主工程：一个 `.uproject`（`"Plugins": [{"Name": "Weft", "Enabled": true}]`），`Plugins/Weft` 指向本仓库的签出（目录联接），`Config/DefaultEngine.ini` 给一张启动地图（`[/Script/EngineSettings.GameMapsSettings]` 的 `EditorStartupMap=/Engine/Maps/Entry.Entry`：没有地图的空工程在 `-nullrhi` 下启动时崩溃），再加一个空的 `Content` 目录。UE 5.8.3 上三个测试都通过（weft `input` 分支 c5d612d）。
+自动化测试（`Source/Weft/Private/Tests`，`Weft.Keyboard.*`、`Weft.TextInput.*`）在一个只放了这个插件的宿主工程里跑，编辑器不画（`-nullrhi`），所以测的是页面这一侧：`UWeftView` 的键（Slate 的键事件到页面的焦点元素、修饰键、重复、文字、阻止的键与丢掉的文字、手柄的键不算）与窗口焦点，`SWeftViewport` 的键盘焦点（Slate 的焦点进出、哪一层拿键盘、按下给焦点在页面的 mousedown 之前、`FocusView`、页面没用的键 Unhandled、代理项合成），以及输入法的上下文：照 IMM 与 TSF 调用它的顺序（组合、上屏、取消、页面结束的组合；TSF 照微软拼音经 UE 的存储时日志里的实际调用：不给范围、SetText 退回 InsertTextAtSelection、标点是一次编辑里开始又结束的组合）、候选窗的位置、"Process" 键与打字的键。输入法的开关（Slate 输入法系统的活动上下文）要控件在窗口里，自动化测试里不测。宿主工程：一个 `.uproject`（`"Plugins": [{"Name": "Weft", "Enabled": true}]`），`Plugins/Weft` 指向本仓库的签出（目录联接），`Config/DefaultEngine.ini` 给一张启动地图（`[/Script/EngineSettings.GameMapsSettings]` 的 `EditorStartupMap=/Engine/Maps/Entry.Entry`：没有地图的空工程在 `-nullrhi` 下启动时崩溃），再加一个空的 `Content` 目录。UE 5.8.3 上三个测试都通过（weft `input` 分支 c5d612d）。
 
 ```powershell
 E:/UnrealEngine/UE_5.8/Engine/Build/BatchFiles/Build.bat UnrealEditor Win64 Development -Project=<宿主>/WeftTests.uproject -WaitMutex
