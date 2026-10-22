@@ -23,11 +23,12 @@ void FWeftTextInputContext::Flush(ITextInputMethodChangeNotifier* Notifier)
 		bDiscarding = false;
 		Given = Text.Len();
 	}
-	if (bComposing && bRanged)
+	if (bComposing)
 	{
-		// Text before the composition (the result of one that ended, as IMM begins the next in the same message, or text
-		// put in without one) is committed first, ending the page's composition with it.
-		const int32 Begin = FMath::Min(int32(CompositionBegin), Text.Len());
+		// The composition is the range the input method gave, or without one (Microsoft Pinyin through Unreal's TSF store
+		// gives none) the text it put in since the page's text. Text before a range (the result of a composition that
+		// ended, as IMM begins the next in the same message) is committed first, ending the page's composition with it.
+		const int32 Begin = bRanged ? FMath::Min(int32(CompositionBegin), Text.Len()) : Given;
 		if (Begin > Given)
 		{
 			if (Target)
@@ -38,9 +39,9 @@ void FWeftTextInputContext::Flush(ITextInputMethodChangeNotifier* Notifier)
 			Sent.Reset();
 			SentCursor = 0;
 		}
-		const FString Composition = Text.Mid(CompositionBegin, CompositionLength);
+		const FString Composition = bRanged ? Text.Mid(CompositionBegin, CompositionLength) : Text.Mid(Given);
 		const int32 Focus = int32(SelectionBegin + (Caret == ECaretPosition::Ending ? SelectionLength : 0));
-		const int32 Cursor = FMath::Clamp(Focus - int32(CompositionBegin), 0, Composition.Len());
+		const int32 Cursor = FMath::Clamp(Focus - Begin, 0, Composition.Len());
 		if (Composition != Sent || Cursor != SentCursor)
 		{
 			// An empty composition cancels the page's.
@@ -54,7 +55,7 @@ void FWeftTextInputContext::Flush(ITextInputMethodChangeNotifier* Notifier)
 		return;
 	}
 	// No composition goes on: the text past what the page has is committed (ending the page's composition with it), or
-	// the page's composition is cancelled. Text without a range came without a composition.
+	// the page's composition is cancelled.
 	const FString Committed = Text.Mid(Given);
 	if (Target && !Committed.IsEmpty())
 	{

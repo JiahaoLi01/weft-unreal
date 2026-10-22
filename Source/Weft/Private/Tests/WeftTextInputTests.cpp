@@ -162,28 +162,39 @@ bool FWeftTextInputCompositionTest::RunTest(const FString& Parameters)
 		"keydown:Process:229:composing,compositionupdate:你,input:insertCompositionText:你,compositionend:你,"
 		"keyup:Space")));
 
-	// TSF: the edit comes before its key, the composition's range after its text.
+	// TSF as Microsoft Pinyin calls it through Unreal's store: the edit comes before its key, and no range ever
+	// (OnUpdateComposition gives none); a letter more replaces the composition (SetText selects it, which Unreal's store
+	// does not implement further, then InsertTextAtSelection replaces the selection); Space puts the candidate in its
+	// place and ends it.
 	Context.BeginComposition();
+	Context.SetSelectionRange(0, 0, ECaret::Ending);
 	Context.SetTextInRange(0, 0, TEXT("h"));
 	Context.SetSelectionRange(1, 0, ECaret::Ending);
-	Context.UpdateCompositionRange(0, 1);
 	Widget->OnKeyDown(Geometry, Process());
+	Widget->OnKeyUp(Geometry, Key(EKeys::H, 'H'));
 	Context.SetSelectionRange(0, 1, ECaret::Ending);
-	Context.SetTextInRange(0, 1, TEXT("哈"));
+	Context.SetTextInRange(0, 1, TEXT("ha"));
+	Context.SetSelectionRange(2, 0, ECaret::Ending);
+	Widget->OnKeyDown(Geometry, Process());
+	Widget->OnKeyUp(Geometry, Key(EKeys::A, 'A'));
+	Context.SetSelectionRange(0, 2, ECaret::Ending);
+	Context.SetTextInRange(0, 2, TEXT("哈"));
 	Context.SetSelectionRange(1, 0, ECaret::Ending);
-	Context.UpdateCompositionRange(0, 1);
 	Context.EndComposition();
 	Widget->OnKeyDown(Geometry, Process());
-	// Text an input method puts in without a composition (Unreal's TSF store begins one for it).
+	Widget->OnKeyUp(Geometry, Key(EKeys::SpaceBar, VK_SPACE));
+	// Punctuation: a composition that begins, takes its text and ends in one edit, before its key.
 	Context.BeginComposition();
 	Context.SetTextInRange(0, 0, TEXT("，"));
 	Context.SetSelectionRange(1, 0, ECaret::Ending);
-	Widget->OnKeyUp(Geometry, Key(EKeys::Comma, VK_OEM_COMMA));
+	Context.EndComposition();
+	Widget->OnKeyDown(Geometry, Process());
 	TestFalse(TEXT("no composition goes on"), Context.IsComposing());
 	TestEqual(TEXT("TSF"), Page.Take(), FString(TEXT(
-		"keydown:Process:229,compositionstart:,compositionupdate:h,input:insertCompositionText:你h,"
+		"keydown:Process:229,compositionstart:,compositionupdate:h,input:insertCompositionText:你h,keyup:KeyH:composing,"
+		"keydown:Process:229:composing,compositionupdate:ha,input:insertCompositionText:你ha,keyup:KeyA:composing,"
 		"keydown:Process:229:composing,compositionupdate:哈,input:insertCompositionText:你哈,compositionend:哈,"
-		"input:insertText:你哈，,keyup:Comma")));
+		"keyup:Space,keydown:Process:229,input:insertText:你哈，")));
 
 	// IMM cancels a composition (Escape): its range empties before its text.
 	Context.BeginComposition();

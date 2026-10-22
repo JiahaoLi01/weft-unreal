@@ -16,8 +16,10 @@ class UWeftView;
  * weft_view_commit_text. Once nothing composes the document empties, and the input method is told so.
  *
  * The composition's range is the one the input method gives (UpdateCompositionRange): IMM gives a composition's new
- * range before its text, TSF after it; an IMM result replaces the whole range. Text put in without a range is committed
- * (Unreal's TSF store begins a composition for text an input method inserts without one).
+ * range before its text, TSF after it; an IMM result replaces the whole range. Without a range (Microsoft Pinyin through
+ * Unreal's TSF store gives none) the composition is what the input method put in since it began. Unreal's TSF store
+ * begins a composition for text an input method inserts without one, which ends only with the next composition's end
+ * (or the field's focus), so such text shows as a composition until then.
  */
 class FWeftTextInputContext final : public ITextInputMethodContext
 {
@@ -64,7 +66,7 @@ private:
 	uint32 SelectionLength = 0;
 	ECaretPosition Caret = ECaretPosition::Ending;
 	bool bComposing = false;
-	/** The composition's range in Text, once the input method gave one. */
+	/** The composition's range in Text, once the input method gave one (otherwise Text past Given). */
 	bool bRanged = false;
 	uint32 CompositionBegin = 0;
 	uint32 CompositionLength = 0;
