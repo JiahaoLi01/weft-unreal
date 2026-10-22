@@ -45,7 +45,12 @@ enum class EWeftPointerRouting : uint8
  * application is active) that layer's page has the focus (window focus, :focus), the other pages not. Its keys go to the
  * page's focused element with Chrome's default actions; a key the page does not use is unhandled, so it goes on to the
  * game (under a game viewport, its input), as Chrome gives the browser the keys a page did not use. A key that types into
- * a text field is the page's.
+ * a text field is the page's. Slate's navigation (an arrow key, Tab or a gamepad's D-pad the page did not use) stays in
+ * the widget, as a browser's keys do not leave its page.
+ *
+ * The gamepads go to every page (FWeftGamepadInput); on a page with spatial navigation the keyboard layer's page takes
+ * the D-pad and the left stick, A and B as the arrow keys, Enter and Escape, and what it used is consumed before the
+ * game sees it.
  *
  * The platform's input method (Slate's ITextInputMethodSystem: IMM or TSF on Windows) is on while that page's focused
  * text field takes text (not a password field's), its candidate window below the field's caret: what it composes goes
@@ -117,6 +122,9 @@ public:
 	virtual FReply OnKeyChar(const FGeometry& MyGeometry, const FCharacterEvent& InCharacterEvent) override;
 	virtual FReply OnFocusReceived(const FGeometry& MyGeometry, const FFocusEvent& InFocusEvent) override;
 	virtual void OnFocusLost(const FFocusEvent& InFocusEvent) override;
+	/** Stopped: Slate's navigation (an arrow key, Tab or a gamepad's D-pad the page left unused) does not take the
+	 *  keyboard focus from the pages, as a browser's keys do not leave its page. */
+	virtual FNavigationReply OnNavigation(const FGeometry& MyGeometry, const FNavigationEvent& InNavigationEvent) override;
 
 private:
 	struct FLayer

@@ -213,6 +213,11 @@ FReply SWeftViewport::OnFocusReceived(const FGeometry& MyGeometry, const FFocusE
 	return FReply::Handled();
 }
 
+FNavigationReply SWeftViewport::OnNavigation(const FGeometry& MyGeometry, const FNavigationEvent& InNavigationEvent)
+{
+	return FNavigationReply::Stop();
+}
+
 void SWeftViewport::OnFocusLost(const FFocusEvent& InFocusEvent)
 {
 	bKeyboardFocus = false;

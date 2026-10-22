@@ -57,6 +57,10 @@ struct WEFT_API FWeftPage
 	 *  localStorage (the View's, see UWeftView::SetStorageItem), dataset, matchMedia. The focus and the keyboard are
 	 *  every page's. */
 	bool bWebPlatform = false;
+	/** Chrome's spatial navigation (WEFT_PAGE_SPATIAL_NAVIGATION): the arrow keys move the focus to the nearest element
+	 *  their way (the pointer with it), Escape blurs it; and the gamepads' D-pad and left stick, A and B are the arrow
+	 *  keys, Enter and Escape of the page with the keyboard focus. */
+	bool bSpatialNavigation = false;
 	/**
 	 * Where the stylesheet's relative URLs (background-image: url()) start: its file's path, or a folder ending in '/'.
 	 * The View reads the files they name from disk, or from a pak in a packaged game; empty, they resolve from the
@@ -66,7 +70,8 @@ struct WEFT_API FWeftPage
 
 	/**
 	 * The page in a folder: page.json ({"scripts": [...], "stylesheet": "...", "keyframes": "...", "root": "...",
-	 * "crpgBridge": false, "forgivingCss": false, "webPlatform": false}, paths relative to the folder), or without it
+	 * "crpgBridge": false, "forgivingCss": false, "webPlatform": false, "spatialNavigation": false}, paths relative to
+	 * the folder), or without it
 	 * page.js, with page.css and keyframes.css when they are there; its base the stylesheet's path. False, with why in
 	 * OutError, when a file is missing.
 	 */

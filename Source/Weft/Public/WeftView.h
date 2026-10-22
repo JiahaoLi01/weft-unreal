@@ -58,6 +58,22 @@ struct FWeftTextInput
 	FBox2D Field = FBox2D(ForceInit);
 };
 
+/**
+ * A gamepad's state in the Gamepad API's standard layout (weft_gamepad_state): its slot (0 to 3, the page's
+ * navigator.getGamepads() index), whether it is connected, its id, its buttons' values (0 to 1: A, B, X, Y, the
+ * shoulders, the triggers, back, start, the stick presses, the D-pad's up, down, left and right, home) with the bits of
+ * those pressed, and its axes (-1 to 1: the left stick's x and y, the right stick's; y down).
+ */
+struct FWeftGamepadState
+{
+	int32 Index = 0;
+	bool bConnected = true;
+	FString Id;
+	float Buttons[17] = {};
+	uint32 Pressed = 0;
+	float Axes[4] = {};
+};
+
 /** A message of the page: weft.engine.send (CallId 0) or weft.engine.call (complete it with CompleteCall). */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnWeftMessage, const FString& /*Name*/, const FString& /*JsonValue*/, uint64 /*CallId*/);
 
@@ -174,6 +190,14 @@ public:
 	 *  element's blur and focus, the window's, and :focus only while it has it. A View starts with it. */
 	void SetFocus(bool bFocused);
 
+	/** A gamepad's state, when it changed (and once as it goes): the page reads it through navigator.getGamepads(), as
+	 *  Chrome's pages do. On a page with spatial navigation that has the focus, its D-pad and left stick (past half), A
+	 *  and B are the arrow keys, Enter and Escape: what the page did with those. The plugin gives every View the
+	 *  gamepads Slate reads (FWeftGamepadInput); this is for gamepads the game reads itself. */
+	EWeftInput Gamepad(const FWeftGamepadState& State);
+	/** Whether the page loaded with spatial navigation (FWeftPage::bSpatialNavigation). */
+	bool HasSpatialNavigation() const { return bSpatialNavigation; }
+
 	/** Where text input goes now (FWeftTextInput): SWeftViewport turns the platform's input method on and off by it and
 	 *  places its candidate window. */
 	FWeftTextInput GetTextInput() const;
@@ -216,5 +240,6 @@ private:
 	FVector2D Size = FVector2D(1, 1);
 	float Scale = 1.f;
 	float ContentScale = 1.f;
+	bool bSpatialNavigation = false;
 	TArray<FWeftAnchor> Anchors;
 };

@@ -50,8 +50,8 @@ Viewport->FocusView(View);
 ```
 
 - `SWeftViewport` 每帧按自己的几何调整 View 的大小（逻辑 px 即 Slate 单位除以 View 的内容缩放 `SetContentScale`，设备缩放即 Slate 的缩放乘它：UI 缩放设置用它，文字仍按设备分辨率画）、推进页面、把帧交给渲染线程。每一层的指针分流（`AddView` 的 `EWeftPointerRouting`）：`Element`（默认）是页面在那里有接受指针的元素就给页面；`Cursor` 是那个元素显示可交互光标（`auto`、`default`、`none` 以外）时才给页面——整屏铺着面板、游戏从空白处透出来的页面用它；滚轮在页面有元素处都交给页面，`Cursor` 下默认箭头处游戏也收到。其余交给下面的游戏视口。指针的移动每帧交给页面一次，用的是最后的位置（同浏览器把 pointermove 对齐到动画帧）；按键、滚轮、离开之前先把攒着的移动交出去。原因是 Slate 会把系统攒下的每一下移动都交过来，一帧慢了攒得多；而每一下都要页面做命中判断、跑处理函数，越慢攒得越多。指针在不在页面上（`IsPointerOverPage`）按每帧第一下移动的位置算。指针停着、按键不变时 Slate 仍会重复发移动（控件在它底下移动时），页面最多每 0.1 秒收一次：每一次都是一次命中测试，悬停状态仍跟得上从静止指针底下滚过的元素。
-- 页面文件夹的 `page.json` 可以写 `"forgivingCss": true`（Tailwind 这类构建工具生成的样式表：画不出的声明丢掉并打诊断，而不是拒绝页面）与 `"webPlatform": true`（console、localStorage、dataset、matchMedia；焦点与键盘每个页面都有）。
-- 键盘见下一节。
+- 页面文件夹的 `page.json` 可以写 `"forgivingCss": true`（Tailwind 这类构建工具生成的样式表：画不出的声明丢掉并打诊断，而不是拒绝页面）、`"webPlatform": true`（console、localStorage、dataset、matchMedia；焦点与键盘每个页面都有）与 `"spatialNavigation": true`（方向键与手柄在元素间移动焦点，见“手柄”）。
+- 键盘、文本框与手柄见下面几节。
 - 字体与效果：`UWeftSubsystem::AddFonts(fonts.json)`（`faces` 的 `family`、`path`、`weight`、`italic`、`face`、`unicodeRange`，与 `fallback`；在第一个页面加载之前）、`AddEffects(effects.json)`（UI 着色器效果：字节码由 weft 的 `cmake/compile_effect.cmake` 编出，`BuildWeft.ps1` 把它连同外壳复制到 `Source/ThirdParty/WeftLibrary/effects/`）。
 - 页面的 localStorage：`UWeftView::SetStorageItem`（加载页面之前恢复）、`GetStorage(Revision, Items)`（修订号变了才交出，游戏据此保存）。
 - 锚点随这一帧的帧数据一起交给渲染线程，在录制前写入 View：锚定的元素与这一帧的 3D 画面同步，不会晚一帧。
@@ -75,6 +75,14 @@ Viewport->FocusView(View);
 - `UWeftView::GetTextInput`、`Compose`、`CommitText`：游戏自己读输入法时用（`weft_view_text_input`、`weft_view_composition`、`weft_view_commit_text`）。
 - 在宣传页的 Unreal 播放器里用真实的微软拼音试过（2026-10-22）：组合串、候选窗在光标下面、空格上屏、组合中的 Enter 只上屏字母（页面不当作发送）、逗号键的全角“，”。
 
+## 手柄
+
+- 页面看得到手柄：每个 View 的页面有 `navigator.getGamepads()` 与 `gamepadconnected`、`gamepaddisconnected`，照 Chrome：某个手柄按下按钮或推过一半摇杆之前一个也不显示，Gamepad 是快照（weft 做）。`FWeftGamepadInput`（子系统把它注册为 Slate 的第一个输入预处理器，游戏与控件之前）收 Slate 给的手柄事件，按 Gamepad API 的标准布局给每个 View（`UWeftView::Gamepad`）：一个手柄从它的第一次输入起占一个槽（0–3；页面在手势之前本来也看不到），id 是 Chrome 给 XInput 手柄的 "Xbox 360 Controller (XInput STANDARD GAMEPAD)"；按钮的变化随到随给，摇杆与扳机的值在这一帧的输入结束时（`FinishedInputThisFrame` 里预处理器的 `Tick`）一起给（摇杆的 x、y 是分开来的），摇杆 y 向下、不加死区，扳机过 30/255 算按下，同 Chrome；平台的输入设备映射说手柄断开时页面收到 `gamepaddisconnected`。
+- 空间导航：`page.json` 的 `"spatialNavigation": true`（`FWeftPage::bSpatialNavigation`）开着时，方向键照 Chrome 的 `--enable-spatial-navigation` 把焦点移到那个方向上最近的元素，指针跟着走，Escape 让它失焦（weft 做）；有键盘焦点的那层页面把十字键与左摇杆（推过一半）当方向键，A 是 Enter，B 是 Escape，按住的方向 0.5 s 后每 0.1 s 重复（weft 自己重复，Slate 对手柄按钮的重复不给页面）。
+- 页面用了的不是游戏的：页面用了一个按钮的按下（方向键移了焦点、Enter 点击、Escape 失焦，或监听器阻止了），预处理器吞掉它（连同 Slate 对它的重复）直到它抬起；页面用了左摇杆的一个方向时，从下一帧起吞掉左摇杆的值与 Slate 为它的方向发的键，直到摇杆回到一半以内（这一帧的值在输入结束时才交给页面，所以推过去的那一帧游戏还会收到）。
+- Slate 的导航（页面没用的方向键、Tab、十字键）不把键盘焦点从控件带走（`OnNavigation` 停住），同浏览器的键不离开页面。
+- 游戏自己读手柄时：`UWeftView::Gamepad(FWeftGamepadState)`。
+
 ## 渲染
 
 - `FWeftRenderer`（每个 weft 运行时一个）在第一次画时按当前 RHI 选后端 `IWeftRhiBackend`：
@@ -88,7 +96,7 @@ Viewport->FocusView(View);
 
 ## 测试
 
-自动化测试（`Source/Weft/Private/Tests`，`Weft.Keyboard.*`、`Weft.TextInput.*`）在一个只放了这个插件的宿主工程里跑，编辑器不画（`-nullrhi`），所以测的是页面这一侧：`UWeftView` 的键（Slate 的键事件到页面的焦点元素、修饰键、重复、文字、阻止的键与丢掉的文字、手柄的键不算）与窗口焦点，`SWeftViewport` 的键盘焦点（Slate 的焦点进出、哪一层拿键盘、按下给焦点在页面的 mousedown 之前、`FocusView`、页面没用的键 Unhandled、代理项合成），以及输入法的上下文：照 IMM 与 TSF 调用它的顺序（组合、上屏、取消、页面结束的组合；TSF 照微软拼音经 UE 的存储时日志里的实际调用：不给范围、SetText 退回 InsertTextAtSelection、标点是一次编辑里开始又结束的组合）、候选窗的位置、"Process" 键与打字的键。输入法的开关（Slate 输入法系统的活动上下文）要控件在窗口里，自动化测试里不测。宿主工程：一个 `.uproject`（`"Plugins": [{"Name": "Weft", "Enabled": true}]`），`Plugins/Weft` 指向本仓库的签出（目录联接），`Config/DefaultEngine.ini` 给一张启动地图（`[/Script/EngineSettings.GameMapsSettings]` 的 `EditorStartupMap=/Engine/Maps/Entry.Entry`：没有地图的空工程在 `-nullrhi` 下启动时崩溃），再加一个空的 `Content` 目录。UE 5.8.3 上三个测试都通过（weft `input` 分支 c5d612d）。
+自动化测试（`Source/Weft/Private/Tests`，`Weft.Keyboard.*`、`Weft.TextInput.*`、`Weft.Gamepad.*`）在一个只放了这个插件的宿主工程里跑，编辑器不画（`-nullrhi`），所以测的是页面这一侧：`UWeftView` 的键（Slate 的键事件到页面的焦点元素、修饰键、重复、文字、阻止的键与丢掉的文字、手柄的键不算）与窗口焦点，`SWeftViewport` 的键盘焦点（Slate 的焦点进出、哪一层拿键盘、按下给焦点在页面的 mousedown 之前、`FocusView`、页面没用的键 Unhandled、代理项合成），以及输入法的上下文：照 IMM 与 TSF 调用它的顺序（组合、上屏、取消、页面结束的组合；TSF 照微软拼音经 UE 的存储时日志里的实际调用：不给范围、SetText 退回 InsertTextAtSelection、标点是一次编辑里开始又结束的组合）、候选窗的位置、"Process" 键与打字的键；手柄：给 `UWeftView` 的状态（手势之前不显示、断开、空间导航的页面上十字键与左摇杆移焦点、A 点击、B 失焦、没有焦点时没有键、没开空间导航的页面没有键），`FWeftGamepadInput` 收 Slate 的事件（页面用了的按钮连同重复与抬起被吞掉、页面不用的按钮与别的键不吞、摇杆的值在输入结束时一起给、页面有左摇杆后吞掉它的值与方向键而不吞右摇杆、扳机过 30/255 按下、第二个手柄占下一个槽、断开）。输入法的开关（Slate 输入法系统的活动上下文）要控件在窗口里，自动化测试里不测。宿主工程：一个 `.uproject`（`"Plugins": [{"Name": "Weft", "Enabled": true}]`），`Plugins/Weft` 指向本仓库的签出（目录联接），`Config/DefaultEngine.ini` 给一张启动地图（`[/Script/EngineSettings.GameMapsSettings]` 的 `EditorStartupMap=/Engine/Maps/Entry.Entry`：没有地图的空工程在 `-nullrhi` 下启动时崩溃），再加一个空的 `Content` 目录。UE 5.8.3 上五个测试都通过（weft `input` 分支 651940f）。
 
 ```powershell
 E:/UnrealEngine/UE_5.8/Engine/Build/BatchFiles/Build.bat UnrealEditor Win64 Development -Project=<宿主>/WeftTests.uproject -WaitMutex
@@ -98,7 +106,7 @@ E:/UnrealEngine/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe <宿主>/WeftT
 ## 限制
 
 - 只有 Win64 + D3D12；D3D11、Vulkan RHI 下不画（记警告）。
-- 输入有指针（移动、按键、滚轮、离开）、键盘与输入法；手柄还没有。输入法吃掉的键没有 code。Slate 不给扫描码，所以 Num Lock 关着时小键盘的键的 code 是它这时的键（End，Chrome 是 Numpad1），小键盘的 Enter 是 Enter；右 Alt 一律是 Alt。
+- 输入有指针（移动、按键、滚轮、离开）、键盘与输入法、手柄（Slate 读到的，id 一律是 XInput 的；没有震动与 Home 键）。输入法吃掉的键没有 code。Slate 不给扫描码，所以 Num Lock 关着时小键盘的键的 code 是它这时的键（End，Chrome 是 Numpad1），小键盘的 Enter 是 Enter；右 Alt 一律是 Alt。
 - 字体用系统字体（weft 的默认），以及 `UWeftSubsystem::AddFont` 加的字体文件。
 - 页面里的图片只有 PNG 背景图（`url()`），没有 `<img>`、JPEG 与 `data:` URL。
 - 一个运行时一个渲染器：所有 View 由同一个 weft 渲染器画。

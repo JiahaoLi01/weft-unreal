@@ -171,7 +171,7 @@ bool UWeftView::Load(const FWeftPage& Page)
 	const FTCHARToUTF8 Base(*Page.Base);
 	weft_page_desc Desc{sizeof(Desc)};
 	Desc.flags = (Page.bCrpgBridge ? WEFT_PAGE_CRPG_BRIDGE : 0u) | (Page.bForgivingCss ? WEFT_PAGE_FORGIVING_CSS : 0u) |
-		(Page.bWebPlatform ? WEFT_PAGE_WEB_PLATFORM : 0u);
+		(Page.bWebPlatform ? WEFT_PAGE_WEB_PLATFORM : 0u) | (Page.bSpatialNavigation ? WEFT_PAGE_SPATIAL_NAVIGATION : 0u);
 	Desc.scripts = Scripts.GetData();
 	Desc.script_count = uint32(Scripts.Num());
 	Desc.stylesheet = Stylesheet.Get();
@@ -183,6 +183,7 @@ bool UWeftView::Load(const FWeftPage& Page)
 	Desc.base = Base.Get();
 	Desc.base_size = size_t(Base.Length());
 	const bool bLoaded = Succeeded(weft_view_load(Runtime, Handle(RuntimeId, Slot, Generation), &Desc), TEXT("load a page"));
+	bSpatialNavigation = bLoaded && Page.bSpatialNavigation;
 	// The page's exceptions, if any.
 	Advance();
 	return bLoaded;
@@ -534,6 +535,35 @@ void UWeftView::SetFocus(bool bFocused)
 	{
 		Succeeded(weft_view_set_focus(Runtime, Handle(RuntimeId, Slot, Generation), bFocused ? 1u : 0u), TEXT("set the focus"));
 	}
+#endif
+}
+
+EWeftInput UWeftView::Gamepad(const FWeftGamepadState& State)
+{
+#if WITH_WEFT
+	if (!Runtime)
+	{
+		return EWeftInput::None;
+	}
+	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Gamepad);
+	static_assert(UE_ARRAY_COUNT(State.Buttons) == WEFT_GAMEPAD_BUTTONS && UE_ARRAY_COUNT(State.Axes) == WEFT_GAMEPAD_AXES);
+	const FTCHARToUTF8 Id(*State.Id);
+	weft_gamepad_state Out{sizeof(Out)};
+	Out.index = uint32(State.Index);
+	Out.connected = State.bConnected ? 1u : 0u;
+	Out.pressed = State.Pressed;
+	Out.id = Id.Get();
+	Out.id_size = size_t(Id.Length());
+	FMemory::Memcpy(Out.buttons, State.Buttons, sizeof(Out.buttons));
+	FMemory::Memcpy(Out.axes, State.Axes, sizeof(Out.axes));
+	uint32 Handled = 0;
+	if (!Succeeded(weft_view_gamepad(Runtime, Handle(RuntimeId, Slot, Generation), &Out, &Handled), TEXT("give a gamepad")))
+	{
+		return EWeftInput::None;
+	}
+	return EWeftInput(Handled);
+#else
+	return EWeftInput::None;
 #endif
 }
 

@@ -6,14 +6,16 @@
 #include "WeftSubsystem.generated.h"
 
 class FTextureResource;
+class FWeftGamepadInput;
 class FWeftRenderer;
 class UTexture;
 class UWeftView;
 struct weft_runtime;
 
 /**
- * The weft runtime of the engine: the Views (UWeftView) on the game thread, which owns them, and the renderer that
- * draws their frames with weft's backend of the running RHI (one renderer draws the Views of one runtime).
+ * The weft runtime of the engine: the Views (UWeftView) on the game thread, which owns them, the renderer that draws
+ * their frames with weft's backend of the running RHI (one renderer draws the Views of one runtime), and the gamepads
+ * Slate reads, which every View's page sees (FWeftGamepadInput, Slate's first input pre-processor).
  */
 UCLASS()
 class WEFT_API UWeftSubsystem : public UEngineSubsystem
@@ -77,6 +79,7 @@ public:
 private:
 	weft_runtime* Runtime = nullptr;
 	TSharedPtr<FWeftRenderer, ESPMode::ThreadSafe> Renderer;
+	TSharedPtr<FWeftGamepadInput> GamepadInput;
 	TArray<TWeakObjectPtr<UWeftView>> Views;
 	TMap<FString, TWeakObjectPtr<UTexture>> Textures;
 	// The font manifests added, and the effects registered.

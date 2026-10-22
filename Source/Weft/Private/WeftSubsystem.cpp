@@ -8,10 +8,12 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Engine/Texture.h"
+#include "Framework/Application/SlateApplication.h"
 #include "TextureResource.h"
 #include "Misc/Paths.h"
 #include "Render/WeftRenderer.h"
 #include "RenderingThread.h"
+#include "WeftGamepadInput.h"
 #include "WeftModule.h"
 #include "WeftView.h"
 
@@ -36,12 +38,32 @@ void UWeftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		return;
 	}
 	Renderer = MakeShared<FWeftRenderer, ESPMode::ThreadSafe>();
+	// The gamepads, before Slate's widgets and the game see them.
+	if (FSlateApplication::IsInitialized())
+	{
+		GamepadInput = MakeShared<FWeftGamepadInput>([this](TArray<UWeftView*>& Out)
+		{
+			for (const TWeakObjectPtr<UWeftView>& View : Views)
+			{
+				if (UWeftView* Alive = View.Get())
+				{
+					Out.Add(Alive);
+				}
+			}
+		});
+		FSlateApplication::Get().RegisterInputPreProcessor(GamepadInput, 0);
+	}
 #endif
 }
 
 void UWeftSubsystem::Deinitialize()
 {
 #if WITH_WEFT
+	if (GamepadInput && FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().UnregisterInputPreProcessor(GamepadInput);
+	}
+	GamepadInput.Reset();
 	if (Runtime)
 	{
 		for (const TWeakObjectPtr<UWeftView>& View : Views)
