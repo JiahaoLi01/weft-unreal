@@ -6,6 +6,7 @@
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Render/WeftFramePacket.h"
 #include "WeftModule.h"
+#include "WeftTextInputContext.h"
 #include "WeftValue.h"
 
 #if PLATFORM_WINDOWS
@@ -25,9 +26,6 @@ namespace
 		const FUTF8ToTCHAR Converted(Text, int32(Size));
 		return FString(Converted.Length(), Converted.Get());
 	}
-
-	// The virtual key Windows gives a key the input method took (VK_PROCESSKEY).
-	constexpr uint32 ProcessKey = 0xE5;
 
 	bool Succeeded(weft_result Result, const TCHAR* What)
 	{
@@ -464,7 +462,7 @@ EWeftInput UWeftView::Key(bool bDown, const FString& Code, const FString& Value,
 EWeftInput UWeftView::Key(const FKeyEvent& Event, bool bDown)
 {
 #if WITH_WEFT
-	if (Runtime && Event.GetKeyCode() == ProcessKey)
+	if (Runtime && Event.GetKeyCode() == FWeftTextInputContext::ProcessKey)
 	{
 		// The input method took the key: Windows names no physical key for it (Chrome's code comes from the scan code,
 		// which Slate does not give). Its keyup, if one comes as VK_PROCESSKEY too, is dropped.

@@ -22,9 +22,6 @@ namespace
 	// is a hit test of the page's latest frame.
 	constexpr double StillMoveSeconds = 0.1;
 
-	// The virtual key Windows gives a key the input method took (VK_PROCESSKEY).
-	constexpr uint32 ProcessKey = 0xE5;
-
 	// The modifier keys of a pointer event (Shift extends a text field's selection to a press).
 	EWeftModifier PointerModifiers(const FPointerEvent& MouseEvent)
 	{
@@ -171,7 +168,7 @@ FReply SWeftViewport::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& In
 	const bool bUsed = Page->Key(InKeyEvent, true) != EWeftInput::None;
 	// What the input method did with its key follows the key (TSF's edit comes before the key reaches the widget).
 	FlushTextInput(MyGeometry);
-	return bUsed || InKeyEvent.GetKeyCode() == ProcessKey ? FReply::Handled() : FReply::Unhandled();
+	return bUsed || InKeyEvent.GetKeyCode() == FWeftTextInputContext::ProcessKey ? FReply::Handled() : FReply::Unhandled();
 }
 
 FReply SWeftViewport::OnKeyUp(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)

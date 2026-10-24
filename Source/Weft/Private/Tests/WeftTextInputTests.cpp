@@ -18,6 +18,9 @@
 #include "WeftView.h"
 #include "Windows/WindowsHWrapper.h"
 
+// The module's files share unity translation units: each test file keeps its helpers in a namespace of its own.
+namespace WeftTextInputTests
+{
 namespace
 {
 	// A text field with the page's focus; the page logs its keys, compositions and input, and sets the field's value
@@ -237,5 +240,7 @@ bool FWeftTextInputCompositionTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("and the document empties"), Context.GetTextLength() == 0);
 	return true;
 }
+
+} // namespace WeftTextInputTests
 
 #endif

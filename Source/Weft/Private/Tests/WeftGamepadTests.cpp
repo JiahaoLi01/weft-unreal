@@ -16,6 +16,9 @@
 #include "WeftTypes.h"
 #include "WeftView.h"
 
+// The module's files share unity translation units: each test file keeps its helpers in a namespace of its own.
+namespace WeftGamepadTests
+{
 namespace
 {
 	// Three buttons one under the other; the page logs its keys, focus, clicks and gamepad events, and on 'probe' the
@@ -226,5 +229,7 @@ bool FWeftGamepadInputTest::RunTest(const FString& Parameters)
 	Page.Take();
 	return true;
 }
+
+} // namespace WeftGamepadTests
 
 #endif

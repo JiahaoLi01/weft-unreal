@@ -24,6 +24,9 @@ class UWeftView;
 class FWeftTextInputContext final : public ITextInputMethodContext
 {
 public:
+	/** The virtual key Windows gives a key the input method took (VK_PROCESSKEY). */
+	static constexpr uint32 ProcessKey = 0xE5;
+
 	explicit FWeftTextInputContext(TWeakPtr<SWidget> InOwner) : Owner(MoveTemp(InOwner)) {}
 
 	/** The page the input method's text goes to, and the geometry of the widget that shows it (where the candidate

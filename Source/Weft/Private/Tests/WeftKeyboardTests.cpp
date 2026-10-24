@@ -18,6 +18,9 @@
 #include "Windows/WindowsHWrapper.h"
 #include "weft/weft.h"
 
+// The module's files share unity translation units: each test file keeps its helpers in a namespace of its own.
+namespace WeftKeyboardTests
+{
 namespace
 {
 	// Two buttons; the page logs its keyboard and focus events.
@@ -245,5 +248,7 @@ bool FWeftKeyboardViewportTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("a layer that is not interactive has no keyboard"), Widget->GetKeyboardView() == Second.View);
 	return true;
 }
+
+} // namespace WeftKeyboardTests
 
 #endif
