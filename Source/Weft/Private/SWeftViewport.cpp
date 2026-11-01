@@ -35,22 +35,6 @@ namespace
 	{
 		return FSlateApplication::IsInitialized() ? FSlateApplication::Get().GetTextInputMethodSystem() : nullptr;
 	}
-
-	// Slate's batcher keeps a plain pointer to a custom element's drawer (FSlateElementBatcher::AddCustomElement pins the
-	// element's weak pointer only while it batches), and the render thread draws with it after the game thread has gone
-	// on. A drawer let go of on the game thread (its layer removed, its widget gone) can be gone by the time the frame
-	// Slate batched last is drawn, which then draws with freed memory. So a layer's drawer is let go of on the render
-	// thread, after every draw enqueued before it.
-	void ReleaseDrawerOnRenderThread(TSharedPtr<FWeftSlateDrawer, ESPMode::ThreadSafe>& Drawer)
-	{
-		if (Drawer)
-		{
-			ENQUEUE_RENDER_COMMAND(WeftReleaseDrawer)([Released = MoveTemp(Drawer)](FRHICommandListImmediate&) mutable
-			{
-				Released.Reset();
-			});
-		}
-	}
 }
 
 void SWeftViewport::Construct(const FArguments& InArgs)
@@ -69,7 +53,7 @@ SWeftViewport::~SWeftViewport()
 {
 	for (FLayer& Layer : Layers)
 	{
-		ReleaseDrawerOnRenderThread(Layer.Drawer);
+		UWeftSubsystem::ReleaseDrawer(Layer.Drawer);
 	}
 	if (TextInput && TextInputNotifier)
 	{
@@ -123,7 +107,7 @@ void SWeftViewport::RemoveView(const UWeftView* InView)
 	{
 		if (Removed(Layer))
 		{
-			ReleaseDrawerOnRenderThread(Layer.Drawer);
+			UWeftSubsystem::ReleaseDrawer(Layer.Drawer);
 		}
 	}
 	Layers.RemoveAll(Removed);

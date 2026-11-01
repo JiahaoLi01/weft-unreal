@@ -8,6 +8,7 @@
 class FTextureResource;
 class FWeftGamepadInput;
 class FWeftRenderer;
+class FWeftSlateDrawer;
 class UTexture;
 class UWeftView;
 struct weft_runtime;
@@ -76,9 +77,29 @@ public:
 	/** The render side, shared with the widgets' draws. */
 	TSharedPtr<FWeftRenderer, ESPMode::ThreadSafe> GetRenderer() const { return Renderer; }
 
+	/**
+	 * Lets go of a widget's drawer (its layer removed, its widget gone) on the render thread, after every Slate draw
+	 * that may draw with it. Slate's batcher keeps a plain pointer to a custom element's drawer
+	 * (FSlateElementBatcher::AddCustomElement pins the element's weak pointer only while it batches), and the render
+	 * thread draws with it after the game thread has gone on. And a layer or its widget may go in the middle of Slate's
+	 * draw, after the widget's OnPaint handed the frame's elements the drawer (a page's message, which the widget's Tick
+	 * delivers inside Slate's paint, closing the page: Slate still paints the widget, then lets go of it), while Slate
+	 * batches the elements and enqueues their draw only after the paint. So the drawer is kept to the end of the
+	 * engine's frame, by when the frame's Slate draws are enqueued, and let go of on the render thread after them. Game
+	 * thread; once the subsystem has ended (the engine exits, nothing is drawn any more), or off the game thread, it goes
+	 * to the render thread at once.
+	 */
+	static void ReleaseDrawer(TSharedPtr<FWeftSlateDrawer, ESPMode::ThreadSafe>& Drawer);
+
 private:
+	/** The drawers ReleaseDrawer kept, let go of on the render thread now: at the end of each frame, and as the
+	 *  subsystem ends. */
+	void ReleaseDrawers();
+
 	weft_runtime* Runtime = nullptr;
 	TSharedPtr<FWeftRenderer, ESPMode::ThreadSafe> Renderer;
+	TArray<TSharedPtr<FWeftSlateDrawer, ESPMode::ThreadSafe>> DrawersToRelease;
+	FDelegateHandle EndFrameHandle;
 	TSharedPtr<FWeftGamepadInput> GamepadInput;
 	TArray<TWeakObjectPtr<UWeftView>> Views;
 	TMap<FString, TWeakObjectPtr<UTexture>> Textures;

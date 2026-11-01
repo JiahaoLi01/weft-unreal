@@ -10,8 +10,10 @@
 #include "Engine/Texture.h"
 #include "Framework/Application/SlateApplication.h"
 #include "TextureResource.h"
+#include "Misc/CoreDelegates.h"
 #include "Misc/Paths.h"
 #include "Render/WeftRenderer.h"
+#include "Render/WeftSlateDrawer.h"
 #include "RenderingThread.h"
 #include "WeftGamepadInput.h"
 #include "WeftModule.h"
@@ -38,6 +40,8 @@ void UWeftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		return;
 	}
 	Renderer = MakeShared<FWeftRenderer, ESPMode::ThreadSafe>();
+	// The drawers the widgets let go of, kept to the end of each frame (ReleaseDrawer).
+	EndFrameHandle = FCoreDelegates::OnEndFrame.AddUObject(this, &UWeftSubsystem::ReleaseDrawers);
 	// The gamepads, before Slate's widgets and the game see them.
 	if (FSlateApplication::IsInitialized())
 	{
@@ -74,8 +78,11 @@ void UWeftSubsystem::Deinitialize()
 			}
 		}
 		Views.Empty();
-		// What the render thread still holds of the Views goes first, then the renderer (after the GPU is done with
-		// it), then the runtime.
+		// What the render thread still holds of the Views goes first, with the drawers kept to this frame's end (those
+		// let go of after this go at once), then the renderer (after the GPU is done with it), then the runtime.
+		FCoreDelegates::OnEndFrame.Remove(EndFrameHandle);
+		EndFrameHandle.Reset();
+		ReleaseDrawers();
 		FlushRenderingCommands();
 		if (Renderer)
 		{
@@ -95,6 +102,36 @@ void UWeftSubsystem::Deinitialize()
 UWeftSubsystem* UWeftSubsystem::Get()
 {
 	return GEngine ? GEngine->GetEngineSubsystem<UWeftSubsystem>() : nullptr;
+}
+
+void UWeftSubsystem::ReleaseDrawer(TSharedPtr<FWeftSlateDrawer, ESPMode::ThreadSafe>& Drawer)
+{
+	if (!Drawer)
+	{
+		return;
+	}
+	UWeftSubsystem* Weft = IsInGameThread() ? Get() : nullptr;
+	if (Weft && Weft->EndFrameHandle.IsValid())
+	{
+		Weft->DrawersToRelease.Add(MoveTemp(Drawer));
+		return;
+	}
+	ENQUEUE_RENDER_COMMAND(WeftReleaseDrawer)([Released = MoveTemp(Drawer)](FRHICommandListImmediate&) mutable
+	{
+		Released.Reset();
+	});
+}
+
+void UWeftSubsystem::ReleaseDrawers()
+{
+	if (DrawersToRelease.IsEmpty())
+	{
+		return;
+	}
+	ENQUEUE_RENDER_COMMAND(WeftReleaseDrawers)([Released = MoveTemp(DrawersToRelease)](FRHICommandListImmediate&) mutable
+	{
+		Released.Empty();
+	});
 }
 
 bool UWeftSubsystem::AddFont(const FString& Family, const FString& File, int32 Weight, bool bItalic, int32 FaceIndex,
