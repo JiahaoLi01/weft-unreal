@@ -1,9 +1,12 @@
 #include "Render/WeftSlateDrawer.h"
 
+#include "ClearQuad.h"
+#include "HDRHelper.h"
 #include "Render/WeftFramePacket.h"
 #include "Render/WeftRenderer.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
+#include "RHIStaticStates.h"
 #include "WeftModule.h"
 
 namespace
@@ -68,6 +71,20 @@ void FWeftSlateDrawer::Draw_RenderThread(FRDGBuilder& GraphBuilder, const FDrawP
 		In.SourcePosition = FIntVector(Rect.Min.X, Rect.Min.Y, 0);
 		In.Size = FIntVector(Size.X, Size.Y, 1);
 		AddCopyTexturePass(GraphBuilder, Output, Target, In);
+	}
+	if (Packet->bOpaqueBackdrop && !IsHDREnabled())
+	{
+		// The picture's alpha alone: its colors stay.
+		FRenderTargetParameters* Opaque = GraphBuilder.AllocParameters<FRenderTargetParameters>();
+		Opaque->RenderTargets[0] = FRenderTargetBinding(Target, ERenderTargetLoadAction::ELoad);
+		GraphBuilder.AddPass(RDG_EVENT_NAME("Weft.OpaqueBackdrop"), Opaque, ERDGPassFlags::Raster,
+			[Size](FRHICommandList& RHICmdList)
+			{
+				RHICmdList.SetViewport(0.f, 0.f, 0.f, float(Size.X), float(Size.Y), 1.f);
+				FClearQuadCallbacks Callbacks;
+				Callbacks.PSOModifier = [](FGraphicsPipelineStateInitializer& State) { State.BlendState = TStaticBlendState<CW_ALPHA>::GetRHI(); };
+				DrawClearQuad(RHICmdList, FLinearColor::Black, Callbacks);
+			});
 	}
 	FWeftPassParameters* Parameters = GraphBuilder.AllocParameters<FWeftPassParameters>();
 	Parameters->RenderTargets[0] = FRenderTargetBinding(Target, ERenderTargetLoadAction::ELoad);

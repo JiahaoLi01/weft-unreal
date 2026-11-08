@@ -637,6 +637,7 @@ TSharedPtr<FWeftFramePacket, ESPMode::ThreadSafe> UWeftView::MakePacket() const
 		return nullptr;
 	}
 	TSharedPtr<FWeftFramePacket, ESPMode::ThreadSafe> Packet = MakeShared<FWeftFramePacket, ESPMode::ThreadSafe>();
+	Packet->bOpaqueBackdrop = bOpaqueBackdrop;
 	Packet->Runtime = Runtime;
 	Packet->View = View;
 	Packet->Frame = Frame;

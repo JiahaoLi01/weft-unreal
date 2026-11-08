@@ -142,6 +142,16 @@ public:
 	float GetContentScale() const { return ContentScale; }
 
 	/**
+	 * For a page whose backdrop-filter reads the game's picture. weft reads what lies behind an element as premultiplied
+	 * color, and the game's picture reaches Slate's output with an alpha of 0: read as transparent, a filter with a color
+	 * function draws nothing and a blur adds onto the picture. With this on, the view's rect of the output is made opaque
+	 * (its alpha alone) before the view draws. Off by default: a page drawn into a texture that stays transparent wants its
+	 * alpha. Not done under HDR output, where Slate draws into a texture of its own that does not hold the picture.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Weft")
+	void SetOpaqueBackdrop(bool bInOpaqueBackdrop) { bOpaqueBackdrop = bInOpaqueBackdrop; }
+
+	/**
 	 * The page's localStorage (pages with the web platform): kept across the View's page loads, for the game to save
 	 * and restore. SetStorageItem sets an item (an empty Value with bRemove removes it); before the page loads, it
 	 * restores what was saved. GetStorage hands the items over when they changed since Revision (0: in any case) and
@@ -240,6 +250,7 @@ private:
 	FVector2D Size = FVector2D(1, 1);
 	float Scale = 1.f;
 	float ContentScale = 1.f;
+	bool bOpaqueBackdrop = false;
 	bool bSpatialNavigation = false;
 	TArray<FWeftAnchor> Anchors;
 };

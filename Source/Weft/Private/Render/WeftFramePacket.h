@@ -24,6 +24,9 @@ struct FWeftFramePacket
 {
 	TArray<FWeftPacketTexture> Textures;
 
+	/** The view's rect is made opaque before it draws (UWeftView::SetOpaqueBackdrop). */
+	bool bOpaqueBackdrop = false;
+
 #if WITH_WEFT
 	weft_runtime* Runtime = nullptr;
 	weft_view_handle View{};
