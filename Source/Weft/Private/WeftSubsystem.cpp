@@ -2,6 +2,7 @@
 
 #include "Algo/AllOf.h"
 #include "Containers/IndirectArray.h"
+#include "Debug/WeftDebugHooks.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Engine.h"
 #include "Misc/FileHelper.h"
@@ -57,6 +58,8 @@ void UWeftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		});
 		FSlateApplication::Get().RegisterInputPreProcessor(GamepadInput, 0);
 	}
+	// Developer tools the command line asks for.
+	WEFT_DEBUG_HOOK(OnRuntimeStarted(*this));
 #endif
 }
 
@@ -70,6 +73,7 @@ void UWeftSubsystem::Deinitialize()
 	GamepadInput.Reset();
 	if (Runtime)
 	{
+		WEFT_DEBUG_HOOK(OnRuntimeEnding(*this));
 		for (const TWeakObjectPtr<UWeftView>& View : Views)
 		{
 			if (UWeftView* Alive = View.Get())

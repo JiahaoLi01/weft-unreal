@@ -110,6 +110,10 @@ public:
 	bool LoadDirectory(const FString& Directory);
 	bool Load(const FWeftPage& Page);
 
+	/** The page's name in the log (LogWeftPage) and the debug tools: the folder of its stylesheet (FWeftPage::Base);
+	 *  empty before a page loads. */
+	const FString& GetPageName() const { return PageName; }
+
 	/** An event to the page's weft.engine.on(Name) handlers, its value JSON text. bLatest replaces an undelivered
 	 *  event of the name instead of queueing another. */
 	UFUNCTION(BlueprintCallable, Category = "Weft")
@@ -233,6 +237,8 @@ protected:
 
 private:
 	friend class UWeftSubsystem;
+	/** The debug tools read the View's handle and counts (WeftDebugTools.cpp). */
+	friend struct FWeftDebugAccess;
 
 	/** A View of runtime of the given size; false when weft refused one. */
 	bool Open(weft_runtime* InRuntime);
@@ -253,4 +259,9 @@ private:
 	bool bOpaqueBackdrop = false;
 	bool bSpatialNavigation = false;
 	TArray<FWeftAnchor> Anchors;
+	FString PageName;
+	/** The page's diagnostics since it loaded: exceptions and console errors; styles its scene cannot take and console
+	 *  warnings. */
+	int32 PageErrors = 0;
+	int32 PageWarnings = 0;
 };

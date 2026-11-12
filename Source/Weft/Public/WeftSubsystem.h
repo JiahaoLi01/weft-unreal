@@ -92,6 +92,9 @@ public:
 	static void ReleaseDrawer(TSharedPtr<FWeftSlateDrawer, ESPMode::ThreadSafe>& Drawer);
 
 private:
+	/** The debug tools read the runtime and the Views (WeftDebugTools.cpp). */
+	friend struct FWeftDebugAccess;
+
 	/** The drawers ReleaseDrawer kept, let go of on the render thread now: at the end of each frame, and as the
 	 *  subsystem ends. */
 	void ReleaseDrawers();

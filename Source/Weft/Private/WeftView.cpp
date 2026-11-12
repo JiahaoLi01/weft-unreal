@@ -1,8 +1,10 @@
 #include "WeftView.h"
 
+#include "Debug/WeftDebugHooks.h"
 #include "HAL/PlatformTime.h"
 #include "Input/Events.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Render/WeftFramePacket.h"
 #include "WeftModule.h"
@@ -93,6 +95,22 @@ namespace
 } // namespace
 #endif
 
+namespace
+{
+	// A page's name: the folder its base names (its stylesheet's folder, or the folder itself for a base ending in '/');
+	// its first script's name without a base.
+	FString PageNameOf(const FWeftPage& Page)
+	{
+		FString Base = Page.Base.Replace(TEXT("\\"), TEXT("/"));
+		if (Base.IsEmpty())
+		{
+			return Page.Scripts.IsEmpty() ? FString(TEXT("page")) : FPaths::GetBaseFilename(Page.Scripts[0].Key);
+		}
+		const FString Name = FPaths::GetCleanFilename(Base.EndsWith(TEXT("/")) ? Base.LeftChop(1) : FPaths::GetPath(Base));
+		return Name.IsEmpty() ? Base : Name;
+	}
+} // namespace
+
 bool UWeftView::Open(weft_runtime* InRuntime)
 {
 #if WITH_WEFT
@@ -180,10 +198,14 @@ bool UWeftView::Load(const FWeftPage& Page)
 	Desc.root_size = Page.Root.IsEmpty() ? 0 : size_t(Root.Length());
 	Desc.base = Base.Get();
 	Desc.base_size = size_t(Base.Length());
+	PageName = PageNameOf(Page);
+	PageErrors = 0;
+	PageWarnings = 0;
 	const bool bLoaded = Succeeded(weft_view_load(Runtime, Handle(RuntimeId, Slot, Generation), &Desc), TEXT("load a page"));
 	bSpatialNavigation = bLoaded && Page.bSpatialNavigation;
 	// The page's exceptions, if any.
 	Advance();
+	WEFT_DEBUG_HOOK(OnPageLoaded(*this));
 	return bLoaded;
 #else
 	return false;
@@ -337,7 +359,6 @@ void UWeftView::Advance()
 	}
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Advance);
 	const weft_view_handle View = Handle(RuntimeId, Slot, Generation);
-	Succeeded(weft_view_advance(Runtime, View, GetPageTime()), TEXT("advance a view"));
 	// The page's messages: handed on after the drain, so that handlers may call into the View.
 	struct FMessage
 	{
@@ -346,46 +367,55 @@ void UWeftView::Advance()
 		uint64 CallId;
 	};
 	TArray<FMessage> Messages;
-	weft_view_drain_messages(
-		Runtime, View,
-		[](void* User, weft_view_handle, const weft_message* Message)
-		{
-			static_cast<TArray<FMessage>*>(User)->Add({FromUtf8(Message->name, Message->name_size),
-				WeftValue::MessagePackToJson(Message->payload, Message->payload_size), Message->call_id});
-		},
-		&Messages);
-	// The page's diagnostics in the log, at the level of their kind: the console's lines as written, the rest as
-	// warnings and errors.
+	// The page's diagnostics in its log (LogWeftPage, after the page's name), at the level of their kind: the console's
+	// lines as written, the rest as warnings and errors.
 	TArray<TPair<EWeftDiagnostic, FString>> Diagnostics;
 	uint32 Dropped = 0;
-	weft_view_drain_diagnostics(
-		Runtime, View,
-		[](void* User, weft_view_handle, const weft_diagnostic* Diagnostic)
-		{
-			static_cast<TArray<TPair<EWeftDiagnostic, FString>>*>(User)->Emplace(EWeftDiagnostic(Diagnostic->kind),
-				FromUtf8(Diagnostic->message, Diagnostic->message_size));
-		},
-		&Diagnostics, &Dropped);
+	{
+		// weft's work, without the game's handlers of what the page said (the debug tools' cost of the View).
+		WEFT_DEBUG_GAME_COST(*this);
+		Succeeded(weft_view_advance(Runtime, View, GetPageTime()), TEXT("advance a view"));
+		weft_view_drain_messages(
+			Runtime, View,
+			[](void* User, weft_view_handle, const weft_message* Message)
+			{
+				static_cast<TArray<FMessage>*>(User)->Add({FromUtf8(Message->name, Message->name_size),
+					WeftValue::MessagePackToJson(Message->payload, Message->payload_size), Message->call_id});
+			},
+			&Messages);
+		weft_view_drain_diagnostics(
+			Runtime, View,
+			[](void* User, weft_view_handle, const weft_diagnostic* Diagnostic)
+			{
+				static_cast<TArray<TPair<EWeftDiagnostic, FString>>*>(User)->Emplace(EWeftDiagnostic(Diagnostic->kind),
+					FromUtf8(Diagnostic->message, Diagnostic->message_size));
+			},
+			&Diagnostics, &Dropped);
+	}
 	for (const TPair<EWeftDiagnostic, FString>& Diagnostic : Diagnostics)
 	{
 		switch (Diagnostic.Key)
 		{
 		case EWeftDiagnostic::Console:
-			UE_LOG(LogWeft, Log, TEXT("Weft page: %s"), *Diagnostic.Value);
+			UE_LOG(LogWeftPage, Log, TEXT("[%s] %s"), *PageName, *Diagnostic.Value);
 			break;
 		case EWeftDiagnostic::ConsoleWarning:
+			[[fallthrough]];
 		case EWeftDiagnostic::Scene:
-			UE_LOG(LogWeft, Warning, TEXT("Weft page: %s"), *Diagnostic.Value);
+			++PageWarnings;
+			UE_LOG(LogWeftPage, Warning, TEXT("[%s] %s"), *PageName, *Diagnostic.Value);
 			break;
 		default:
-			UE_LOG(LogWeft, Error, TEXT("Weft page: %s"), *Diagnostic.Value);
+			++PageErrors;
+			UE_LOG(LogWeftPage, Error, TEXT("[%s] %s"), *PageName, *Diagnostic.Value);
 			break;
 		}
 		OnDiagnostic.Broadcast(Diagnostic.Key, Diagnostic.Value);
 	}
 	if (Dropped)
 	{
-		UE_LOG(LogWeft, Warning, TEXT("Weft page: %u diagnostics dropped past the view's bound"), Dropped);
+		PageWarnings += int32(Dropped);
+		UE_LOG(LogWeftPage, Warning, TEXT("[%s] %u diagnostics dropped past the view's bound"), *PageName, Dropped);
 	}
 	for (const FMessage& Message : Messages)
 	{
@@ -402,6 +432,7 @@ bool UWeftView::Pointer(EWeftPointer Kind, FVector2D Position, uint32 Buttons, F
 		return false;
 	}
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Pointer);
+	WEFT_DEBUG_GAME_COST(*this);
 	weft_pointer_event Event{sizeof(Event)};
 	Event.kind = uint32(Kind);
 	Event.x = float(Position.X);
@@ -427,6 +458,7 @@ bool UWeftView::HitTest(FVector2D Position, FString& OutCursor) const
 		return false;
 	}
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_HitTest);
+	WEFT_DEBUG_GAME_COST(*this);
 	weft_hit Hit{sizeof(Hit)};
 	if (weft_view_hit_test(Runtime, Handle(RuntimeId, Slot, Generation), float(Position.X), float(Position.Y), &Hit) != WEFT_OK)
 	{
@@ -487,6 +519,7 @@ EWeftInput UWeftView::KeyUtf8(bool bDown, const char* Code, const char* Value, u
 {
 #if WITH_WEFT
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Key);
+	WEFT_DEBUG_GAME_COST(*this);
 	weft_key_event Event{sizeof(Event)};
 	Event.kind = bDown ? WEFT_KEY_DOWN : WEFT_KEY_UP;
 	Event.key = Value;
@@ -514,6 +547,7 @@ EWeftInput UWeftView::Text(const FString& Typed)
 		return EWeftInput::None;
 	}
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Text);
+	WEFT_DEBUG_GAME_COST(*this);
 	const FTCHARToUTF8 Utf8(*Typed);
 	uint32 Handled = 0;
 	if (weft_view_text(Runtime, Handle(RuntimeId, Slot, Generation), Utf8.Get(), size_t(Utf8.Length()), &Handled) != WEFT_OK)
@@ -544,6 +578,7 @@ EWeftInput UWeftView::Gamepad(const FWeftGamepadState& State)
 		return EWeftInput::None;
 	}
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_Gamepad);
+	WEFT_DEBUG_GAME_COST(*this);
 	static_assert(UE_ARRAY_COUNT(State.Buttons) == WEFT_GAMEPAD_BUTTONS && UE_ARRAY_COUNT(State.Axes) == WEFT_GAMEPAD_AXES);
 	const FTCHARToUTF8 Id(*State.Id);
 	weft_gamepad_state Out{sizeof(Out)};
@@ -630,12 +665,14 @@ TSharedPtr<FWeftFramePacket, ESPMode::ThreadSafe> UWeftView::MakePacket() const
 		return nullptr;
 	}
 	TRACE_CPUPROFILER_EVENT_SCOPE(Weft_MakePacket);
+	WEFT_DEBUG_GAME_COST(*this);
 	const weft_view_handle View = Handle(RuntimeId, Slot, Generation);
 	weft_view_frame* Frame = nullptr;
 	if (weft_view_acquire_frame(Runtime, View, &Frame) != WEFT_OK)
 	{
 		return nullptr;
 	}
+	WEFT_DEBUG_HOOK(OnFrame(*this, Frame));
 	TSharedPtr<FWeftFramePacket, ESPMode::ThreadSafe> Packet = MakeShared<FWeftFramePacket, ESPMode::ThreadSafe>();
 	Packet->bOpaqueBackdrop = bOpaqueBackdrop;
 	Packet->Runtime = Runtime;

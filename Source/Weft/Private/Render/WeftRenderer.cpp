@@ -1,5 +1,6 @@
 #include "Render/WeftRenderer.h"
 
+#include "Debug/WeftDebugHooks.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Render/WeftFramePacket.h"
@@ -73,6 +74,7 @@ void FWeftRenderer::Draw(FRHICommandList& RHICmdList, FRHITexture* Target, FIntP
 			}
 			if (Self->Backend)
 			{
+				WEFT_DEBUG_DRAW_COST(*Packet);
 				Self->Backend->Draw(Executing, TargetRef.GetReference(), Size, Format, *Packet);
 			}
 		});
